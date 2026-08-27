@@ -1965,11 +1965,11 @@ fun InformacoesTab() {
     }
 
     // Fork do usuário: releases são publicadas aqui (github.com/fefezo/haval-app-tool-multimidia)
-    private val UPDATE_REPO = "https://api.github.com/repos/fefezo/haval-app-tool-multimidia"
+    val UPDATE_REPO = "https://api.github.com/repos/fefezo/haval-app-tool-multimidia"
 
     // Extrai o SHA-256 anunciado pela release: prioridade para "sha256: <hex>" no corpo,
     // fallback para o campo digest do asset (API do GitHub retorna "sha256:<hex>").
-    private fun extractSha256(body: String, digest: String): String? {
+    fun extractSha256(body: String, digest: String): String? {
         val bodyHash = Regex("(?i)sha256[\\s:=]+([0-9a-f]{64})").find(body)
         if (bodyHash != null) return bodyHash.groupValues[1].lowercase()
         if (digest.startsWith("sha256:")) return digest.substringAfter("sha256:").lowercase()
@@ -2052,7 +2052,7 @@ fun InformacoesTab() {
         return parts1.size.compareTo(parts2.size)
     }
 
-    private fun sha256Of(file: File): String? {
+    fun sha256Of(file: File): String? {
         return try {
             val md = MessageDigest.getInstance("SHA-256")
             file.inputStream().use { input ->
