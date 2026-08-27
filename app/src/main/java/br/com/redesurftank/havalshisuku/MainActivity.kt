@@ -138,6 +138,7 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStreamReader
+import java.security.MessageDigest
 import java.net.HttpURLConnection
 import java.net.URL
 import java.text.SimpleDateFormat
@@ -1908,6 +1909,7 @@ fun InformacoesTab() {
     var updateAvailable by remember { mutableStateOf(false) }
     var latestVersion by remember { mutableStateOf("") }
     var downloadUrl by remember { mutableStateOf("") }
+    var updateSha256 by remember { mutableStateOf<String?>(null) }
     var isDownloading by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableFloatStateOf(0f) }
     var downloadError by remember { mutableStateOf<String?>(null) }
@@ -1962,20 +1964,32 @@ fun InformacoesTab() {
         }
     }
 
-    suspend fun getLatestReleaseInfo(isPreview: Boolean): Pair<String?, String?> {
+    // Fork do usuário: releases são publicadas aqui (github.com/fefezo/haval-app-tool-multimidia)
+    private val UPDATE_REPO = "https://api.github.com/repos/fefezo/haval-app-tool-multimidia"
+
+    // Extrai o SHA-256 anunciado pela release: prioridade para "sha256: <hex>" no corpo,
+    // fallback para o campo digest do asset (API do GitHub retorna "sha256:<hex>").
+    private fun extractSha256(body: String, digest: String): String? {
+        val bodyHash = Regex("(?i)sha256[\\s:=]+([0-9a-f]{64})").find(body)
+        if (bodyHash != null) return bodyHash.groupValues[1].lowercase()
+        if (digest.startsWith("sha256:")) return digest.substringAfter("sha256:").lowercase()
+        return null
+    }
+
+    suspend fun getLatestReleaseInfo(isPreview: Boolean): Triple<String?, String?, String?> {
         return withContext(Dispatchers.IO) {
             try {
                 val endpoint = if (isPreview)
-                    "https://api.github.com/repos/bobaoapae/haval-app-tool-multimidia/releases"
+                    "$UPDATE_REPO/releases"
                 else
-                    "https://api.github.com/repos/bobaoapae/haval-app-tool-multimidia/releases/latest"
+                    "$UPDATE_REPO/releases/latest"
 
                 val url = URL(endpoint)
                 val conn = url.openConnection() as HttpURLConnection
                 conn.requestMethod = "GET"
                 conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
 
-                if (conn.responseCode != 200) return@withContext null to null
+                if (conn.responseCode != 200) return@withContext Triple(null, null, null)
 
                 val reader = BufferedReader(InputStreamReader(conn.inputStream))
                 val response = reader.use { it.readText() }
@@ -1985,19 +1999,22 @@ fun InformacoesTab() {
                     val tag = json.getString("tag_name")
                     val assets = json.getJSONArray("assets")
                     var dlUrl: String? = null
+                    var sha256: String? = null
                     for (i in 0 until assets.length()) {
                         val a = assets.getJSONObject(i)
                         if (a.getString("name").endsWith(".apk")) {
                             dlUrl = a.getString("browser_download_url")
+                            sha256 = extractSha256(json.optString("body", ""), a.optString("digest", ""))
                             break
                         }
                     }
-                    return@withContext tag to dlUrl
+                    return@withContext Triple(tag, dlUrl, sha256)
                 }
 
                 val releases = JSONArray(response)
                 var tag: String? = null
                 var dlUrl: String? = null
+                var sha256: String? = null
 
                 for (i in 0 until releases.length()) {
                     val rel = releases.getJSONObject(i)
@@ -2008,6 +2025,7 @@ fun InformacoesTab() {
                             val a = assets.getJSONObject(j)
                             if (a.getString("name").endsWith(".apk")) {
                                 dlUrl = a.getString("browser_download_url")
+                                sha256 = extractSha256(rel.optString("body", ""), a.optString("digest", ""))
                                 break
                             }
                         }
@@ -2015,10 +2033,10 @@ fun InformacoesTab() {
                     }
                 }
 
-                tag to dlUrl
+                Triple(tag, dlUrl, sha256)
             } catch (e: Exception) {
                 Log.w(TAG, "Error fetching latest release info", e)
-                null to null
+                Triple(null, null, null)
             }
         }
     }
@@ -2032,6 +2050,24 @@ fun InformacoesTab() {
             if (parts1[i] < parts2[i]) return -1
         }
         return parts1.size.compareTo(parts2.size)
+    }
+
+    private fun sha256Of(file: File): String? {
+        return try {
+            val md = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buf = ByteArray(65536)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    md.update(buf, 0, n)
+                }
+            }
+            md.digest().joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            Log.e(TAG, "SHA-256 computation failed", e)
+            null
+        }
     }
 
     fun startDownload() {
@@ -2056,6 +2092,15 @@ fun InformacoesTab() {
                     }
                     output.close()
                     input.close()
+                }
+                // Verificação de integridade: só instala se o SHA-256 bater com o anunciado na release
+                val actualSha256 = sha256Of(file)
+                val expectedSha256 = updateSha256
+                if (expectedSha256 == null || actualSha256 == null || !actualSha256.equals(expectedSha256, ignoreCase = true)) {
+                    file.delete()
+                    isDownloading = false
+                    downloadError = "Verificação SHA-256 falhou (obtido: ${actualSha256 ?: "erro"}, esperado: ${expectedSha256 ?: "—"}). Download descartado."
+                    return@launch
                 }
                 isDownloading = false
                 withContext(Dispatchers.Main) {
@@ -2185,18 +2230,24 @@ fun InformacoesTab() {
                     Button(
                         onClick = {
                             scope.launch {
-                                val (latest, dlUrl) = getLatestReleaseInfo(isPreviewVersion)
+                                val (latest, dlUrl, sha256) = getLatestReleaseInfo(isPreviewVersion)
                                 if (latest != null && dlUrl != null) {
-                                    val currentClean = version.removePrefix("v")
-                                    val latestClean = latest.removePrefix("v")
-                                    // Se a versão atual for 99.99, sempre permitir instalação da versão mais recente
-                                    if (currentClean == "99.99" || compareVersions(latestClean, currentClean) > 0) {
-                                        latestVersion = latest
-                                        downloadUrl = dlUrl
-                                        updateAvailable = true
-                                    } else {
-                                        updateMessage = "Você está na versão mais recente"
+                                    if (sha256 == null) {
+                                        updateMessage = "Release sem hash SHA-256 — instalação bloqueada por segurança. Adicione \"sha256: <hash>\" no corpo da release."
                                         showUpdateDialog = true
+                                    } else {
+                                        val currentClean = version.removePrefix("v")
+                                        val latestClean = latest.removePrefix("v")
+                                        // Se a versão atual for 99.99, sempre permitir instalação da versão mais recente
+                                        if (currentClean == "99.99" || compareVersions(latestClean, currentClean) > 0) {
+                                            latestVersion = latest
+                                            downloadUrl = dlUrl
+                                            updateSha256 = sha256
+                                            updateAvailable = true
+                                        } else {
+                                            updateMessage = "Você está na versão mais recente"
+                                            showUpdateDialog = true
+                                        }
                                     }
                                 } else {
                                     updateMessage = "Erro ao verificar atualizações"
@@ -2252,7 +2303,7 @@ fun InformacoesTab() {
             }
         }
 
-        // Seção de Contribuição
+        // Seção de Créditos
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -2266,7 +2317,7 @@ fun InformacoesTab() {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    "Contribua para o Desenvolvimento",
+                    "Créditos",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
@@ -2276,32 +2327,23 @@ fun InformacoesTab() {
                 HorizontalDivider(color = Color(0xFF1D2430))
 
                 Text(
-                    "Ajude a manter este projeto ativo! Sua contribuição é muito importante para o desenvolvimento contínuo do app.",
+                    "HavalShisuku foi originalmente desenvolvido por netseek, bobaoapae e tontonhaval. Todo o crédito e agradecimento pelo trabalho vão para eles.",
                     fontSize = 14.sp,
                     color = Color(0xFFB0B8C4),
                     textAlign = TextAlign.Center,
                     lineHeight = 20.sp
                 )
 
-                // QR Code
-                Image(
-                    painter = painterResource(id = R.drawable.qrcode),
-                    contentDescription = "QR Code para contribuição",
-                    modifier = Modifier
-                        .size(200.dp)
-                        .padding(8.dp),
-                    contentScale = ContentScale.Fit
-                )
-
                 Text(
-                    "Escaneie o QR Code ou use a chave PIX: joaovitorbor@gmail.com",
-                    fontSize = 16.sp,
+                    "Este é um fork mantido por Felipe (github.com/fefezo), com restyle do cluster, correções de ar-condicionado e secagem, instalador macOS e atualização remota com verificação de integridade.",
+                    fontSize = 14.sp,
                     color = Color(0xFFB0B8C4),
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp
                 )
 
                 Text(
-                    "Obrigado pelo seu apoio! 🙏",
+                    "Obrigado pelo seu trabalho! 🙏",
                     fontSize = 14.sp,
                     color = Color(0xFF4ADE80),
                     fontWeight = FontWeight.Medium,

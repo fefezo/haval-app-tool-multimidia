@@ -78,6 +78,8 @@ var stateManager = new StateManager({
     recycle: 0,
     aion: 0,
     maxauto: 0,
+    dry: 0,
+    font: 'Khand',
     outside_temp: '-',
     inside_temp: '-',
 

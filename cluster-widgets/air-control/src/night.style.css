@@ -2,7 +2,7 @@
 
 * {
   box-sizing: border-box;
-  font-family: 'Khand', sans-serif;
+  font-family: var(--font-ui), sans-serif;
   font-weight: 300;
   padding: 0;
   margin: 0;
@@ -219,7 +219,7 @@ button {
 
 .text-white {
   color: #ffffff;
-  text-shadow: 0 0 8px #00beff;
+  text-shadow: 0 0 6px rgba(77, 158, 255, 0.45);
 }
 
 .text-gray {
@@ -307,9 +307,9 @@ button {
   -moz-transform: scale(1.3);
   -ms-transform: scale(1.3);
   -o-transform: scale(1.3);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
-  -webkit-box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
-  -moz-box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 0 2px rgba(77, 158, 255, 0.4);
+  -webkit-box-shadow: 0 0 0 2px rgba(77, 158, 255, 0.4);
+  -moz-box-shadow: 0 0 0 2px rgba(77, 158, 255, 0.4);
 }
 
 .focus-inactive {
@@ -338,21 +338,21 @@ button {
 /* Glow Effect */
 .glow-effect {
   box-shadow:
-    0 0 20px rgba(29, 78, 216, 0.6),
-    0 0 40px rgba(29, 78, 216, 0.4),
-    0 0 60px rgba(29, 78, 216, 0.2),
+    0 0 12px rgba(47, 78, 140, 0.35),
+    0 0 24px rgba(47, 78, 140, 0.22),
+    0 0 40px rgba(47, 78, 140, 0.1),
     0 10px 15px -3px rgba(0, 0, 0, 0.1),
     0 4px 6px -2px rgba(0, 0, 0, 0.05);
   -webkit-box-shadow:
-    0 0 20px rgba(29, 78, 216, 0.6),
-    0 0 40px rgba(29, 78, 216, 0.4),
-    0 0 60px rgba(29, 78, 216, 0.2),
+    0 0 12px rgba(47, 78, 140, 0.35),
+    0 0 24px rgba(47, 78, 140, 0.22),
+    0 0 40px rgba(47, 78, 140, 0.1),
     0 10px 15px -3px rgba(0, 0, 0, 0.1),
     0 4px 6px -2px rgba(0, 0, 0, 0.05);
   -moz-box-shadow:
-    0 0 20px rgba(29, 78, 216, 0.6),
-    0 0 40px rgba(29, 78, 216, 0.4),
-    0 0 60px rgba(29, 78, 216, 0.2),
+    0 0 12px rgba(47, 78, 140, 0.35),
+    0 0 24px rgba(47, 78, 140, 0.22),
+    0 0 40px rgba(47, 78, 140, 0.1),
     0 10px 15px -3px rgba(0, 0, 0, 0.1),
     0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
@@ -363,9 +363,9 @@ button {
   -moz-transform: scale(1.05) !important;
   -ms-transform: scale(1.05) !important;
   -o-transform: scale(1.05) !important;
-  border: 2px solid rgba(29, 78, 216, 0.8) !important;
-  -webkit-border: 2px solid rgba(29, 78, 216, 0.8) !important;
-  -moz-border: 2px solid rgba(29, 78, 216, 0.8) !important;
+  border: 2px solid rgba(77, 158, 255, 0.55) !important;
+  -webkit-border: 2px solid rgba(77, 158, 255, 0.55) !important;
+  -moz-border: 2px solid rgba(77, 158, 255, 0.55) !important;
   transition: all 0.3s ease !important;
   -webkit-transition: all 0.3s ease !important;
   -moz-transition: all 0.3s ease !important;
@@ -373,10 +373,10 @@ button {
 }
 
 .gradient-line {
-  background: linear-gradient(to bottom, #60a5fa 0%, #3b82f6 50%, transparent 100%);
-  background: -webkit-linear-gradient(top, #60a5fa 0%, #3b82f6 50%, transparent 100%);
-  background: -moz-linear-gradient(top, #60a5fa 0%, #3b82f6 50%, transparent 100%);
-  background: -o-linear-gradient(top, #60a5fa 0%, #3b82f6 50%, transparent 100%);
+  background: linear-gradient(to bottom, #4d9eff 0%, #2a5fae 50%, transparent 100%);
+  background: -webkit-linear-gradient(top, #4d9eff 0%, #2a5fae 50%, transparent 100%);
+  background: -moz-linear-gradient(top, #4d9eff 0%, #2a5fae 50%, transparent 100%);
+  background: -o-linear-gradient(top, #4d9eff 0%, #2a5fae 50%, transparent 100%);
 }
 
 .auto-mode-container {
@@ -400,7 +400,7 @@ button {
   position: absolute;
   top: 0;
   display: flex;
-  transform: translate(100px, 170px);
+  transform: translate(100px, 155px);
   display: -webkit-box;
   justify-content: space-between;
   -webkit-box-pack: justify;
@@ -416,15 +416,59 @@ button {
   z-index: 3;
   justify-content: space-between;
   align-items: center;
-  font-family: Khand, sans-serif;
-  font-weight: 300;
+  font-family: var(--font-ui), sans-serif;
+  font-weight: 500;
   display: -webkit-box;
   position: absolute;
   top: 0;
   left: 50%;
-  transform: translate(-50%, 365px);
-  font-size: 18px;
-  color: #3bf676;
+  transform: translate(-50%, 364px);
+  font-size: 15px;
+  letter-spacing: 0.5px;
+  color: #58c58e;
+  gap: 10px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #12151c;
+  border: 1px solid rgba(88, 197, 142, 0.35);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+
+.dry-icon-container {
+  z-index: 3;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-ui), sans-serif;
+  font-weight: 500;
+  display: -webkit-box;
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, 364px);
+  font-size: 15px;
+  letter-spacing: 0.5px;
+  color: #eaa33e;
+  gap: 10px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #12151c;
+  border: 1px solid rgba(234, 163, 62, 0.35);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+
+.dry-icon-container .dry-badge-countdown {
+  color: #f2c98f;
+  font-variant-numeric: tabular-nums;
+}
+
+.dry-badge-icon {
+  width: 16px;
+  height: 16px;
+  background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHBhdGggZmlsbD0iI2VhYTMzZQ==ZD0iTTMyIDRDMzIgNCAxMiAyOCAxMiA0MmMwIDExIDkgMTggMjAgMThzMjAtNyAyMC0xOEM1MiAyOCAzMiA0IDMyIDR6Ii8+PC9zdmc+");
+  background-repeat: no-repeat;
+  background-size: contain;
 }
 
 .temp-info-container {
@@ -441,18 +485,18 @@ button {
 }
 
 .temp-info-label {
-  font-family: 'Khand';
+  font-family: var(--font-ui);
   font-weight: 100;
   font-size: 20px;
   font-weight: 300;
-  color: #4d97ff;
+  color: #5d8fd0;
 }
 
 .temp-info-value-left {
   text-align: left;
   font-size: 30px;
   font-weight: 300;
-  color: #4d97ff;
+  color: #5d8fd0;
   transform: translateY(-12px);
 }
 
@@ -460,7 +504,7 @@ button {
   text-align: right;
   font-size: 30px;
   font-weight: 300;
-  color: #4d97ff;
+  color: #5d8fd0;
   transform: translateY(-12px);
 }
 
@@ -472,10 +516,10 @@ button {
   position: absolute;
   width: 452px;
   height: 452px;
-  border: 3px solid #1d4ed8;
+  border: 3px solid #2f4e8c;
   border-radius: 50%;
-  box-shadow: 0 0 15px rgba(29, 78, 216, 0.7);
-  background: radial-gradient(circle, #ffffff 50%, #006dff 100%);
+  box-shadow: 0 0 12px rgba(47, 78, 140, 0.45);
+  background: radial-gradient(circle, #ffffff 50%, #2a5fae 100%);
   animation: pulse-glow 10s infinite alternate;
   z-index: 0;
 }
@@ -501,15 +545,15 @@ button {
 
 @keyframes pulse-glow {
   0% {
-    box-shadow: inset 0 0 50px #60a5fa;
+    box-shadow: inset 0 0 25px rgba(96, 165, 250, 0.35);
   }
 
   50% {
-    box-shadow: inset 0 0 0px #60a5fa;
+    box-shadow: inset 0 0 0px rgba(96, 165, 250, 0.35);
   }
 
   100% {
-    box-shadow: inset 0 0 50px #60a5fa;
+    box-shadow: inset 0 0 25px rgba(96, 165, 250, 0.35);
   }
 }
 
@@ -517,7 +561,7 @@ button {
   position: absolute;
   width: 392px;
   height: 2px;
-  background-color: #4d97ff6b;
+  background-color: #4d7fbf59;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -535,8 +579,8 @@ button {
 }
 
 .ac-power-icon.off {
-  color: #ff4500;
-  text-shadow: 0 0 5px #edbba8;
+  color: #e5605a;
+  text-shadow: 0 0 5px rgba(229, 96, 90, 0.35);
 }
 
 .ac-labels-container {
@@ -550,7 +594,7 @@ button {
 .ac-label {
   position: absolute;
   font-size: 14px;
-  color: #2563eb;
+  color: #5d7bab;
   transform-origin: center;
   left: 50%;
   top: 50%;
@@ -562,20 +606,21 @@ button {
 }
 
 .ac-label.active {
-  color: red;
-  font-weight: bold;
-  font-size: 22px;
-  transform: scale(1.1);
+  color: #ffffff;
+  font-weight: 500;
+  font-size: 20px;
+  transform: scale(1.05);
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
 }
 
 
 .fan-display-label {
-  font-size: 86px;
+  font-size: 72px;
   line-height: 0.9;
 }
 
 .temp-display-label {
-  font-size: 100px;
+  font-size: 72px;
   line-height: 0.9;
 }
 
@@ -597,7 +642,7 @@ button {
   position: absolute;
   bottom: 0;
   display: flex;
-  transform: translateY(-88px);
+  transform: translateY(-104px);
   font-size: 80px;
   font-weight: 500;
   color: white;
@@ -626,7 +671,7 @@ button {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: conic-gradient(var(--progress-color, #60a5fa) 0deg var(--progress-angle, 0deg),
+  background: conic-gradient(var(--progress-color, #4d9eff) 0deg var(--progress-angle, 0deg),
       transparent var(--progress-angle, 0deg) 360deg);
   filter: drop-shadow(0 0 8px var(--progress-color, white));
   -webkit-mask: radial-gradient(transparent 0,
@@ -649,7 +694,7 @@ button {
   border-radius: 50%;
 
   background: conic-gradient(transparent 0deg var(--progress-angle, 0deg),
-      #00beff var(--progress-angle, 0deg), var(--progress-color, #3b82f6) 360deg);
+      #4d9eff var(--progress-angle, 0deg), var(--progress-color, #2a5fae) 360deg);
 
   -webkit-mask: radial-gradient(transparent 0,
       transparent calc(50% - 15px),
@@ -663,13 +708,13 @@ button {
 
 #fan-progress-ring {
   --progress-color: #ffffff;
-  text-shadow: 0 0 8px #00beff;
+  text-shadow: 0 0 6px rgba(77, 158, 255, 0.5);
   transform: translate(-50%, -50%) rotate(270deg);
 }
 
 #temp-progress-ring {
-  --progress-color: #0051ff;
-  text-shadow: 0 0 8px #00beff;
+  --progress-color: #2a5fae;
+  text-shadow: 0 0 6px rgba(77, 158, 255, 0.5);
   transform: translate(-50%, -50%) rotate(-90deg);
 }
 
@@ -717,7 +762,7 @@ button {
 }
 
 .regen-label {
-  font-family: 'Khand', sans-serif;
+  font-family: var(--font-ui), sans-serif;
   font-weight: 100;
   font-size: 50px;
   color: rgb(85, 128, 165, 0.8);
@@ -735,9 +780,9 @@ button {
   position: absolute;
   width: 452px;
   height: 452px;
-  border: 3px solid #1d4ed8;
+  border: 3px solid #2f4e8c;
   border-radius: 50%;
-  box-shadow: 0 0 15px rgba(29, 78, 216, 0.7);
+  box-shadow: 0 0 12px rgba(47, 78, 140, 0.45);
   -webkit-mask: radial-gradient(circle at center, transparent 196px, white 197px);
   mask: radial-gradient(circle at center, transparent 196px, white 197px);
 
@@ -772,9 +817,9 @@ button {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background-color: rgba(0, 120, 255, 0.2);
+  background-color: rgba(74, 118, 180, 0.16);
   transition: transform 0.2 s cubic-bezier(0.2, 1, 0.3, 1);
-  filter: drop-shadow(0 0 10px rgba(0, 0, 255, 0.8));
+  filter: drop-shadow(0 0 10px rgba(40, 80, 150, 0.4));
   z-index: 3;
 }
 
@@ -826,13 +871,13 @@ canvas.regen-chart {
 
 .one-pedal-instruction {
   text-align: center;
-  color: #4d97ff;
+  color: #5d8fd0;
   width: 150px;
   font-size: 18px;
   font-weight: 300;
   line-height: 0.9;
   position: absolute;
-  bottom: 10px;
+  bottom: 24px;
   left: 50%;
   transform: translate(-50%);
 }
@@ -842,7 +887,7 @@ canvas.regen-chart {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-family: 'Khand', sans-serif;
+  font-family: var(--font-ui), sans-serif;
   font-weight: 100;
   font-size: 50px;
   color: rgb(85, 128, 165, 0.8);
@@ -881,9 +926,9 @@ canvas.regen-chart {
   --segment-3-alpha: clamp(0, var(--regen-segment-active-level) - 2, 1);
 
   background:
-    conic-gradient(from 240deg, rgba(0, 160, 255, var(--segment-3-alpha)) 0 110deg, transparent 110deg),
-    conic-gradient(from 120deg, rgba(0, 140, 255, var(--segment-2-alpha)) 0 110deg, transparent 110deg),
-    conic-gradient(from 0deg, rgba(0, 120, 255, var(--segment-1-alpha)) 0 110deg, transparent 110deg);
+    conic-gradient(from 240deg, rgba(77, 158, 255, var(--segment-3-alpha)) 0 110deg, transparent 110deg),
+    conic-gradient(from 120deg, rgba(58, 127, 224, var(--segment-2-alpha)) 0 110deg, transparent 110deg),
+    conic-gradient(from 0deg, rgba(42, 95, 174, var(--segment-1-alpha)) 0 110deg, transparent 110deg);
   -webkit-mask: radial-gradient(transparent 0,
       transparent calc(50% - 15px),
       white calc(50% - 15px),
@@ -919,10 +964,10 @@ canvas.regen-chart {
   top: 65px;
   left: 50%;
   transform: translateX(-50%);
-  font-family: 'Khand', sans-serif;
+  font-family: var(--font-ui), sans-serif;
   font-weight: 100;
   font-size: 32px;
-  color: #c2e3ffcc;
+  color: #a8c4e4cc;
   white-space: nowrap;
   letter-spacing: 2px;
   text-shadow: 0 0 8px rgba(0, 0, 0, 1);
@@ -964,18 +1009,18 @@ canvas.regen-chart {
 }
 
 .graph-bullet.active {
-  background-color: #00A0FF;
+  background-color: #4d9eff;
   transform: scale(1.2);
-  box-shadow: 0 0 10px rgba(0, 160, 255, 0.7);
+  box-shadow: 0 0 10px rgba(77, 158, 255, 0.4);
 }
 
 .graph-outer-ring {
   position: absolute;
   width: 452px;
   height: 452px;
-  border: 3px solid #1d4ed8;
+  border: 3px solid #2f4e8c;
   border-radius: 50%;
-  box-shadow: 0 0 15px rgba(29, 78, 216, 0.7);
+  box-shadow: 0 0 12px rgba(47, 78, 140, 0.45);
 
   -webkit-mask: radial-gradient(circle at center, transparent 196px, white 197px);
   mask: radial-gradient(circle at center, transparent 196px, white 197px);
@@ -1010,11 +1055,11 @@ canvas.regen-chart {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background-color: rgba(0, 120, 255, 0.3);
+  background-color: rgba(74, 118, 180, 0.22);
   transition: transform 0.2 s cubic-bezier(0.2, 1, 0.3, 1);
   -webkit-mask: radial-gradient(circle at center, white 90%, transparent 90%);
   mask: radial-gradient(circle at center, white 90%, transparent 90%);
-  filter: drop-shadow(0 0 10px rgba(0, 0, 255, 0.8));
+  filter: drop-shadow(0 0 10px rgba(40, 80, 150, 0.4));
   z-index: 3;
 }
 
@@ -1059,7 +1104,7 @@ canvas.regen-chart {
   opacity: 0;
   transition: all 0.4s ease-in-out;
   z-index: 12;
-  font-family: 'Khand', sans-serif;
+  font-family: var(--font-ui), sans-serif;
   color: #ffffff;
   top: 250px;
   left: 45px;
@@ -1072,7 +1117,7 @@ canvas.regen-chart {
   position: absolute;
   color: #ffffff;
   font-size: 60px;
-  font-family: 'Khand', sans-serif;
+  font-family: var(--font-ui), sans-serif;
   font-weight: 500;
   pointer-events: none;
   text-align: center;
@@ -1087,7 +1132,7 @@ canvas.regen-chart {
   gap: 4px;
   color: #ffffff;
   font-size: 20px;
-  font-family: 'Khand', sans-serif;
+  font-family: var(--font-ui), sans-serif;
   font-weight: 100;
   pointer-events: none;
   text-align: center;
@@ -1121,7 +1166,7 @@ canvas.regen-chart {
   text-align: right;
   font-size: 40px;
   font-weight: 300;
-  color: #9affb5;
+  color: #7fd4a5;
   font-size: 32px;
   font-weight: 300;
 }
@@ -1129,7 +1174,7 @@ canvas.regen-chart {
 .dynamic-tooltip.secondary .tooltip-unity {
   top: 62px;
   left: 226px;
-  color: #9affb5;
+  color: #7fd4a5;
   font-size: 18px;
   opacity: 0.8;
 }
@@ -1153,7 +1198,7 @@ canvas.regen-chart {
 }
 
 canvas.graph-chart {
-  background: radial-gradient(circle, #006aff20 0%, #00000000 90%);
+  background: radial-gradient(circle, #2a5fae26 0%, #00000000 90%);
 }
 
 .timer-tooltip {
@@ -1166,7 +1211,7 @@ canvas.graph-chart {
   pointer-events: none;
   transition: all 0.4s ease-in-out;
   z-index: 12;
-  font-family: 'Khand', sans-serif;
+  font-family: var(--font-ui), sans-serif;
   color: #ffffff;
   top: 250px;
   left: 0px;
@@ -1187,7 +1232,7 @@ canvas.graph-chart {
   position: absolute;
   color: #ffffff;
   font-size: 32px;
-  font-family: 'Khand', sans-serif;
+  font-family: var(--font-ui), sans-serif;
   font-weight: 300;
   pointer-events: none;
   text-align: center;
@@ -1202,7 +1247,7 @@ canvas.graph-chart {
   gap: 4px;
   color: #ffffff;
   font-size: 18px;
-  font-family: 'Khand', sans-serif;
+  font-family: var(--font-ui), sans-serif;
   font-weight: 100;
   pointer-events: none;
   text-align: center;

@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Instruções — Haval Installer para macOS</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 10.5pt; line-height: 1.5; color: #1c2733; margin: 0;
+    padding: 28px 44px; background: #fff;
+  }
+  h1 { font-size: 21pt; margin: 0 0 2px; color: #0b3d63; }
+  .subtitle { color: #5b6b7b; font-size: 10.5pt; margin-bottom: 18px; }
+  h2 {
+    font-size: 13pt; color: #0b3d63; margin: 22px 0 8px;
+    padding-bottom: 4px; border-bottom: 2px solid #d5e4f0;
+  }
+  h3 { font-size: 11pt; margin: 14px 0 4px; color: #1c2733; }
+  p { margin: 6px 0; }
+  ul, ol { margin: 6px 0 6px 22px; padding: 0; }
+  li { margin: 4px 0; }
+  code {
+    font-family: "SF Mono", Consolas, Menlo, monospace; font-size: 9.5pt;
+    background: #f0f4f8; border: 1px solid #d8e2ec; border-radius: 4px;
+    padding: 1px 5px; white-space: nowrap;
+  }
+  pre {
+    font-family: "SF Mono", Consolas, Menlo, monospace; font-size: 9.5pt;
+    background: #f0f4f8; border: 1px solid #d8e2ec; border-radius: 6px;
+    padding: 10px 14px; overflow-x: auto; white-space: pre; margin: 8px 0;
+  }
+  .box {
+    border-radius: 8px; padding: 10px 14px; margin: 10px 0;
+    border-left: 4px solid;
+  }
+  .ok   { background: #eaf7ee; border-color: #2e9e5b; }
+  .warn { background: #fdf3e0; border-color: #d98a1e; }
+  .danger { background: #fdeaea; border-color: #c94141; }
+  .ok strong { color: #1d7a41; }
+  .warn strong { color: #a0640c; }
+  .danger strong { color: #a02a2a; }
+  .mono { font-family: "SF Mono", Consolas, Menlo, monospace; font-size: 9.5pt; }
+  table { border-collapse: collapse; margin: 10px 0; width: 100%; }
+  th, td { border: 1px solid #d8e2ec; padding: 6px 10px; text-align: left; font-size: 9.5pt; }
+  th { background: #eef4f9; color: #0b3d63; }
+  .small { font-size: 9pt; color: #5b6b7b; }
+  .pagebreak { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<h1>Haval Installer — macOS</h1>
+<div class="subtitle">Instalação e atualização do app do multimídia do Haval H6, 100% offline, direto do seu MacBook.</div>
+
+<h2>O que é este pacote</h2>
+<p>
+Um app para macOS (basta dar dois cliques) que instala o <b>HavalShisuku</b> (seu fork) e o
+<b>Shizuku</b> na central multimídia do carro. O MacBook conecta no WiFi do carro, serve os
+arquivos pela rede local e o carro se instala sozinho — <b>sem internet</b>, sem domínios de
+terceiros. Tudo dentro do pacote tem hash verificado antes de rodar.
+</p>
+<div class="box ok">
+  <strong>Nada precisa ser instalado no Mac — nem Python.</strong> O instalador usa
+  ferramentas que já vêm com o macOS (curl, perl/ruby/python3 — o que existir). Funciona
+  100% offline, inclusive na garagem sem sinal.
+</div>
+
+<h2>O que tem dentro do pacote</h2>
+<table>
+  <tr><th>Arquivo</th><th>Papel</th></tr>
+  <tr><td class="mono">Haval Installer.app</td><td>O app que você vai clicar</td></tr>
+  <tr><td class="mono">Instrucoes-Haval-Installer.pdf</td><td>Este documento</td></tr>
+</table>
+<p class="small">Dentro do .app: script de instalação, Frida oficial 17.2.15 (binários SHA-256
+pinados), Shizuku v13.6.0 oficial, o script de hook (reescrita clean-room) e o APK do seu app.</p>
+
+<h2>Instalação — passo a passo</h2>
+
+<h3>1. No Mac: baixar e descompactar</h3>
+<ol>
+  <li>Baixe o arquivo <code>Haval-Installer-macOS.zip</code> do Google Drive (no Mac).</li>
+  <li><b>Confira a integridade antes de descompactar</b> — abra o Terminal e rode:
+      <pre>shasum -a 256 ~/Downloads/Haval-Installer-macOS.zip</pre>
+      O hash exato é informado junto com o download. Se o valor não bater,
+      o arquivo chegou <b>truncado</b> (download incompleto) — baixe de novo.</li>
+  <li>Dê dois cliques no zip para descompactar. Você verá a pasta com
+      <code>Haval Installer.app</code> e o PDF.</li>
+  <li>Mova o <code>Haval Installer.app</code> para onde preferir (ex.: Downloads ou
+      Applications).</li>
+</ol>
+<div class="box warn">
+  <strong>Se o Finder disser “arquivo danificado ou incompleto”:</strong> o download veio
+  truncado — repita o download e confira o hash do passo 2. Se mesmo com o hash correto o
+  Finder recusar o zip, use a versão <code>Haval-Installer-macOS.tar.gz</code> (mesmo
+  conteúdo; o descompactador nativo lida melhor com ela) ou extraia pelo Terminal:
+  <code>tar xzf Haval-Installer-macOS.tar.gz</code>.
+</div>
+<div class="box danger">
+  <strong>O Google Drive falhou 2× baixando este arquivo (109 MB).</strong> Pare de brigar
+  com ele: copie o arquivo para um <b>pendrive</b> (qualquer um serve, são 109 MB) e leve
+  ao Mac — ou transfira pela rede local (no PC: <code>python -m http.server 8000</code>
+  na pasta do arquivo; no Mac, Safari em <code>http://IP-DO-PC:8000</code>). Transferência
+  local é rápida e não tem download pela metade.
+</div>
+
+<h3>2. Primeira abertura: liberar o macOS</h3>
+<p>Como o app não é assinado por um desenvolvedor registrado, o macOS pode recusar a
+primeira abertura. Faça assim:</p>
+<div class="box warn">
+  <strong>Se aparecer “não é possível abrir porque o desenvolvedor não é identificado”:</strong><br>
+  Clique com o <b>botão direito</b> em <code>Haval Installer.app</code> → <b>Abrir</b> →
+  <b>Abrir</b> novamente na janela de confirmação. Isso libera o app de vez.
+</div>
+<p class="small">Alternativa pelo Terminal:
+<code>xattr -dr com.apple.quarantine "Haval Installer.app"</code></p>
+
+<h3>3. No carro: preparar</h3>
+<ol>
+  <li>Ligue o carro (acender a central é suficiente).</li>
+  <li>Na central: ative o <b>WiFi / hotspot</b> (Ajustes → conexões do veículo).</li>
+  <li>No MacBook: conecte ao WiFi <b>do carro</b> (a central é o gateway
+      <code>192.168.33.x</code>). <b>Não</b> use o WiFi de casa nem o do celular.</li>
+</ol>
+
+<h3>4. Rodar o instalador</h3>
+<ol>
+  <li>Dê dois cliques em <code>Haval Installer.app</code>.</li>
+  <li>Abre uma janela do Terminal com um menu:
+      <pre>  1) Instalacao completa (primeira vez no carro)
+  2) Atualizacao rapida  (mesma assinatura, so o APK)
+  3) Teste offline      (verifica arquivos + servidor, sem o carro)
+  4) Simulacao completa (mock do carro - dry-run, sem hotspot)</pre>
+  </li>
+  <li>Digite <b>1</b> e tecle ENTER. Aguarde — o APK tem ~115 MB e a transferência
+      pela rede do carro leva alguns minutos.</li>
+</ol>
+
+<h3>Testar antes de ir para o carro (opcional, mas recomendado)</h3>
+<div class="box ok">
+  <strong>Sem o carro por perto, use as opções 3 e 4 — funcionam sem internet e sem
+  hotspot:</strong><br>
+  <b>3 (Teste offline)</b> verifica o servidor interno e baixa cada arquivo do pacote,
+  conferindo o conteúdo byte a byte. Se passar, o pacote está íntegro.<br>
+  <b>4 (Simulação completa)</b> roda a instalação inteira contra um “carro falso”
+  dentro do Mac: verificação de hashes, transferência com conferência de tamanho e
+  nova tentativa automática, <span class="mono">pm install</span>, modo B com hook via
+  Frida e conferência de UID, tudo com respostas simuladas. Se terminar com
+  <span class="mono">MODE A succeeded</span> ou <span class="mono">MODE B succeeded</span>,
+  o fluxo está correto do início ao fim.
+</div>
+
+<h3>5. O que é sucesso</h3>
+<div class="box ok">
+  <strong>No final deve aparecer algo assim:</strong><br>
+  <span class="mono">[+] MODE A succeeded - app UID 12345 (&lt;= 10999, telnet at boot will work).</span><br>
+  <span class="mono">[+] Done! Mode A. Both packages should be installed:</span><br>
+  …ou, se a central bloquear a instalação direta:<br>
+  <span class="mono">[+] MODE B succeeded - app UID 12345.</span><br>
+  <span class="mono">[+] Done! Mode B. Both packages should be installed:</span>
+</div>
+<p>
+O script instala o Shizuku e o app e depois <b>verifica de verdade</b>: os <b>dois
+pacotes</b> presentes e o UID ≤ 10999 (necessário para o telnet root do app na
+inicialização). Nesta central o Shizuku costuma ser bloqueado na instalação direta
+(<span class="mono">beantechs disallow apk moe.shizuku.privileged.api</span>) — o
+script então <b>automaticamente</b> usa o modo B: inicia o Frida, injeta o hook no
+<span class="mono">system_server</span>, <b>confirma que o hook carregou</b> (tentando
+de novo se necessário) e reinstala. Você não precisa fazer nada, é só esperar.
+</p>
+
+<h3>6. Reiniciar a central</h3>
+<p>
+Desligue e ligue a central (ou aguarde o próximo boot do carro). No boot, o app inicia
+sozinho (BootReceiver), conecta no telnet local (localhost:23) e sobe o Shizuku.
+</p>
+
+<h2>Atualizações futuras (quando você tiver uma ideia nova)</h2>
+<ol>
+  <li>Gere o novo APK no Windows (<code>.\build.ps1</code>) e republique o zip no Drive
+      (mesmo fluxo deste documento), <b>ou</b> apenas copie o novo APK para o Mac e:</li>
+  <li>No carro: dê dois cliques em <code>Haval Installer.app</code> → escolha
+      <b>2 (Atualizacao rapida)</b>.</li>
+</ol>
+<div class="box ok">
+  <strong>Por que a opção 2 é rápida:</strong> o APK é sempre assinado com a mesma chave
+  de depuração, então <code>pm install -r</code> atualiza por cima mantendo o UID e a
+  assinatura — sem Frida, sem reinstalar o Shizuku, ~2 minutos no carro.
+</div>
+
+<h2 class="pagebreak">Solução de problemas</h2>
+<table>
+  <tr><th>Sintoma</th><th>Causa / solução</th></tr>
+  <tr>
+    <td class="mono">gateway is 192.168.x.y, not the Haval hotspot</td>
+    <td>O Mac está em outra rede (casa/celular). Conecte no WiFi <b>do carro</b> e rode de novo.</td>
+  </tr>
+  <tr>
+    <td class="mono">hash mismatch</td>
+    <td>Algum arquivo veio corrompido ou foi adulterado — o instalador aborta de propósito.
+        Baixe o zip novamente do Drive.</td>
+  </tr>
+  <tr>
+    <td>“arquivo danificado ou incompleto” ao descompactar</td>
+    <td>Download truncado. Rode <code>shasum -a 256</code> e compare com o hash do
+        download; baixe de novo ou use o <code>.tar.gz</code>.</td>
+  </tr>
+  <tr>
+    <td>Erro de “python3 not found” / Python</td>
+    <td>Não é mais necessário: o instalador usa <b>perl</b> (sempre presente no macOS)
+        ou ruby/python3 se existirem. Rode a opção <b>3</b> do menu para confirmar.</td>
+  </tr>
+  <tr>
+    <td>“não é possível abrir porque o desenvolvedor não é identificado”</td>
+    <td>Botão direito → <b>Abrir</b> → <b>Abrir</b> (ver passo 2).</td>
+  </tr>
+  <tr>
+    <td class="mono">Connection timed out</td>
+    <td>O Mac <b>não</b> precisa alcançar o próprio IP — o pré-flight agora verifica
+        via loopback (o hotspot do carro não roteia de volta para o próprio cliente,
+        por isso o timeout era esperado e não é mais fatal). O que importa é o carro
+        alcançar o Mac: se a transferência falhar no carro (<span class="mono">SIZE-BAD</span>
+        repetido), o macOS bloqueou o servidor no firewall — na <b>primeira</b>
+        execução ele pergunta “deixar python3 (ou perl) aceitar conexões?”: clique em
+        <b>Permitir</b>. Se você perdeu o aviso: <b>Ajustes do Sistema → Privacidade
+        e Segurança → Firewall</b> → permita <span class="mono">python3</span>/<span class="mono">perl</span>.
+        Mantenha o MacBook acordado e perto do carro e rode de novo.</td>
+  </tr>
+  <tr>
+    <td class="mono">404 File not found / Some files did not transfer</td>
+    <td>O hotspot do carro caiu ou o Mac dormiu no meio — o IP do Mac mudou e o carro
+        pediu para o serviço errado. O instalador <b>verifica cada arquivo no próprio
+        carro</b> (tamanho) e tenta de novo automaticamente; se falhar de novo, ele
+        para antes de instalar qualquer coisa. Permita o firewall, mantenha o Mac
+        acordado e rode de novo.</td>
+  </tr>
+  <tr>
+    <td class="mono">hook did not report ready</td>
+    <td>O Frida anexou mas o hook não confirmou que carregou (rede lenta ou o runtime
+        demorou). O instalador tenta de novo até 4 vezes — inclusive com o bundle
+        original vendado — e só instala depois que o hook confirma. Se todas falharem,
+        guarde o log do Terminal e revise a saída.</td>
+  </tr>
+  <tr>
+    <td class="mono">beantechs disallow apk moe.shizuku.privileged.api</td>
+    <td>É o bloqueio <b>esperado</b> desta central na instalação direta — por isso o
+        modo B existe. Se aparecer no <b>modo B</b> (com o hook já ativo), algo falhou
+        no Frida: guarde o log.</td>
+  </tr>
+  <tr>
+    <td>MODE A falhou e o MODE B também</td>
+    <td>Revise a saída no Terminal (o script mostra o UID e quais pacotes faltam).
+        Provavelmente é necessário reinstalar do zero ou o APK foi assinado com
+        outra chave.</td>
+  </tr>
+  <tr>
+    <td>Transferência demorando muito</td>
+    <td>Normal: ~115 MB pela rede do carro. O script espera até 15 min para o download
+        do APK. Não feche a janela.</td>
+  </tr>
+  <tr>
+    <td>O app abre mas o Shizuku não sobe no boot</td>
+    <td>Verifique se o UID reportado na instalação era ≤ 10999. Se sim, reinicie a
+        central por completo (power cycle).</td>
+  </tr>
+</table>
+
+<h2>Segurança</h2>
+<ul>
+  <li><b>Nada é baixado na hora da instalação.</b> Todos os arquivos estão dentro do app,
+      no seu Mac — o carro puxa pela rede local.</li>
+  <li><b>Tudo é verificado</b> contra um manifesto SHA-256 pinado antes de rodar; qualquer
+      divergência aborta a instalação.</li>
+  <li>Os binários do Frida são byte-idênticos ao release oficial 17.2.15; o Shizuku é o
+      release oficial v13.6.0; o script de hook é uma reescrita clean-room do original.</li>
+  <li>O telnet (porta 23) da central é um shell root na rede do carro — a senha do
+      hotspot é o seu limite de exposição. Não compartilhe.</li>
+  <li>O script de hook manipula o <span class="mono">PackageManagerService</span> para
+      forçar UID baixo e contornar um bloqueio de instalação da GWM — é isso que permite
+      o telnet root do app na inicialização.</li>
+</ul>
+
+<p class="small" style="margin-top:24px">Haval Installer v1.2 · gerado em 2026-08-26 · script clean-room
+<a style="color:#5b6b7b" href="#">mac-installer/system_server.js</a></p>
+
+</body>
+</html>

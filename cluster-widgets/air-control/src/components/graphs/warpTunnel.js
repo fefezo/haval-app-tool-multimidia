@@ -127,7 +127,7 @@ export class WarpTunnelAnimation {
                 this.ctx.moveTo(0, 0);
                 this.ctx.lineTo(Math.cos(ray.angle) * len, Math.sin(ray.angle) * len);
                 // More Orange Sun Rays (Less Green)
-                this.ctx.strokeStyle = `rgba(255, 140, 0, ${sunIntensity * 0.4})`;
+                this.ctx.strokeStyle = `rgba(255, 140, 0, ${sunIntensity * 0.3})`;
                 this.ctx.lineWidth = 2 + (this.normalizedSpeed * 4);
                 this.ctx.stroke();
 
@@ -163,7 +163,7 @@ export class WarpTunnelAnimation {
         const b = Math.min(255, 0 + (this.normalizedSpeed * 200));
 
         gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 1)`);
-        gradient.addColorStop(0.4, `rgba(255, 80, 0, ${0.5 + (this.normalizedSpeed * 0.5)})`); // Deep Orange
+        gradient.addColorStop(0.4, `rgba(255, 80, 0, ${0.35 + (this.normalizedSpeed * 0.35)})`); // Deep Orange
         gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
         this.ctx.fillStyle = gradient;

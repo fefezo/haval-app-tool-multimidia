@@ -140,6 +140,18 @@ public class MainMenu implements Screen {
                     new MenuItem(
                             MenuItem.MENU_ID_STATS,
                             new MenuAction.NavigateTo(graphScreen)
+                    ),
+                    new MenuItem(
+                            MenuItem.MENU_ID_DRYING,
+                            new MenuAction.ToggleDryingMode()
+                    ),
+                    new MenuItem(
+                            MenuItem.MENU_ID_FONT,
+                            new MenuAction.CycleFont()
+                    ),
+                    new MenuItem(
+                            MenuItem.MENU_ID_CIRCULATION,
+                            new MenuAction.ToggleCycleMode()
                     )
             );
         }
@@ -198,6 +210,12 @@ public class MainMenu implements Screen {
                     MainUiManager.getInstance().updateScreen(((MenuAction.NavigateTo) action).getScreen());
                 } else if (action instanceof MenuAction.CycleValues) {
                     serviceManager.updateData(((MenuAction.CycleValues) action).carOptionID.getValue(), ((MenuAction.CycleValues) action).cycleNext());
+                } else if (action instanceof MenuAction.ToggleDryingMode) {
+                    ((MenuAction.ToggleDryingMode) action).toggle();
+                } else if (action instanceof MenuAction.CycleFont) {
+                    ((MenuAction.CycleFont) action).cycleNext();
+                } else if (action instanceof MenuAction.ToggleCycleMode) {
+                    ((MenuAction.ToggleCycleMode) action).toggle();
                 }
                 break;
         }
@@ -245,6 +263,53 @@ public class MainMenu implements Screen {
                 return carOptionID;
             }
         }
+
+        class ToggleDryingMode implements MenuAction {
+            public void toggle() {
+                ServiceManager serviceManager = ServiceManager.getInstance();
+                if (serviceManager.isDryingModeActive()) {
+                    serviceManager.cancelDryingMode();
+                } else {
+                    serviceManager.startDryingMode();
+                }
+            }
+        }
+
+        class ToggleCycleMode implements MenuAction {
+            public void toggle() {
+                ServiceManager serviceManager = ServiceManager.getInstance();
+                String current = serviceManager.getUpdatedData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue());
+                if (current != null) {
+                    boolean cycleMode = current.equals("1");
+                    serviceManager.updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), cycleMode ? "0" : "1");
+                    serviceManager.cancelMaxAcMode();
+                    serviceManager.cancelDryingMode();
+                }
+            }
+        }
+
+        class CycleFont implements MenuAction {
+            // Must match the font names the cluster widget embeds (fonts.css)
+            private static final String[] FONTS = {"Khand", "Inter", "IBM Plex Sans", "Barlow Semi Condensed"};
+            private int currentIndex;
+
+            public CycleFont() {
+                ServiceManager serviceManager = ServiceManager.getInstance();
+                String current = serviceManager.getSharedPreferences()
+                        .getString(SharedPreferencesKeys.LAST_CLUSTER_FONT.getKey(), "Khand");
+                this.currentIndex = Arrays.asList(FONTS).indexOf(current);
+                if (this.currentIndex == -1) this.currentIndex = 0;
+            }
+
+            public void cycleNext() {
+                this.currentIndex = (this.currentIndex + 1) % FONTS.length;
+                String font = FONTS[this.currentIndex];
+                ServiceManager serviceManager = ServiceManager.getInstance();
+                serviceManager.getSharedPreferences().edit()
+                        .putString(SharedPreferencesKeys.LAST_CLUSTER_FONT.getKey(), font).apply();
+                serviceManager.dispatchServiceManagerEvent(ServiceManagerEventType.FONT_CHANGED, font);
+            }
+        }
     }
 
     private static class MenuItem {
@@ -255,6 +320,9 @@ public class MainMenu implements Screen {
         public static final String MENU_ID_STEER_MODE = "option_5";
         public static final String MENU_ID_REGENERATION_MODE = "option_6";
         public static final String MENU_ID_STATS = "option_7";
+        public static final String MENU_ID_DRYING = "option_8";
+        public static final String MENU_ID_FONT = "option_9";
+        public static final String MENU_ID_CIRCULATION = "option_10";
         private final String id;
         private final MenuAction action;
 

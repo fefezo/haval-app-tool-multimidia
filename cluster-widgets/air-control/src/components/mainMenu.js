@@ -10,6 +10,12 @@ const iconSteer = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAA
 const iconRegen = "data:image/png;base64,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";
 const iconEV = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAAsTAAALEwEAmpwYAAAF20lEQVR4nO1aa4hVVRReWlNQEb3LHkSB1Y/SoB+WhNHjRw+yd5ZIVkQUpeQPQQgaJOlBqBQE9aPmh/1pKKGEwWnOWmduWaRczRSKbCCoNCbzkUrPGb9Ya+87c++dO86cc/aemeB8cOFyz9377P19a++91tqLqESJEiVKlChRIiYSnEuCBSRYS4yNJPiOGPtJ8Dcx/vHf+0jQTYI3KMVDVMGMln2lOJ6qaKMpj404gwTPkGAzMY6SAP6zmwQVEnQSo4ME79h3ARPjx7r/gRhfkmCpTVrRieP8fz+cuiR8gvNJsIYER/wk9piqjPn0GU4fs32K0yjBncR43doyvmp47vpWgtYTYy4J3qUEF9Cko4o2Yiyvm3hCCW4z1fJC2+rk1ALUWnpwnf3OWO3f4SyLsWtySejFTGJs88psoRTXBu2/gktI0E+C340EwRy/d+z1pOtesmvUfSMqBHfZwBh/EmMJtWN6lPekuHKIBMFBP/nZ/tndRohuosC0KO9viRRPkGCAGN9TiqspNgSLvcnvpQSzGp4xVtmzXlxFEzZ5tjW4lbpxTq4+BM+bCY///9ttkiluGfGMMc8vwQU0QWY/YJPvwqkF9o1/SVAddxvGQm9xO+lTnN00pqXeOuZSVPRipl+HfbmVVzDe84qNnwBFikWehG9MdT02GQ8Q44BZSKw9qO6o22YbXpE1P6x+dgIUjAeJcajBaXKfrUNOUxSwHTlqZksK9rPOq/hrLgIUFVxEjGXEeIVSPEqMlX5sKyiah8c4bOd8ETOrqe+WQDU3Ac3oxAl+WRyO4w+Id0Fr3lheuIkPUIorghLgxnizXwprKEJgc8Tc2yKoV18RmgAFI7Xo8mOcFK5TsagO5tuHUj8WARpKu73gsXCdioW0ewoFNs3qxyJA9wJ1mTWUDpbMYBy18DSk+rEIcO96kwSD4wq/M5jUfAqpfkwCamMW3FG8M8Fa66wIm63Uj0mA5gYcAS8X74wth7e7QPvLvdPTqL5CfYqR3tzIj4a6CW7M9F7BzxYeF4agz46W0OorNPUlePuYH+ctDlAPLss47i3mtheGYB8xPgi69rO3X5e5raDLkqyFIZZu6giufuz2Shrjj1zvbYB2kkeByVQ/MAE/mTn9n9R37TcU2ryb0lCbKQt0wxoOd4+9yelG2AwXKLU+OcYLxiaLDguD0ZN5M9Ejy2Vpxz7idLceTX09QvOPW7PGG3K3HwLjVZ+IvJBCo5UjVHTtK3SsjtwXiw8ysbM6Tra1FQFF137tnsCJdn+oXMCgBRixCQihvsJduiqJZwUYJZG/pe23UDMmASHU15Ddrf9iyZsGMB6PsgzqCQilfoJ7fPzwdKBREll6yeXdJRoBIdR3fX5hKbEUpwQaZVNYzLiJQhMQSn3BDd5SX6Lg6MGZtra0vKULJwYlIIT67tJmh90caxYrCgRPeitYaUlHvZRI8Fzu4gQ3eRfuFt/53aWNJnCjoR3TzS0embA4ZNdV+SwAhdXXggnBXza2qHeD7UbA17YhMu61m+EU15vP7SaxKBcBRdR3SVsN2PZRDy6lqGB/B5/g2Ybf9apar6ydKS/MSEB+9fW9LlgbpBS3UnQwHvaKzRvxTIsWnDlvz9DfChK8UEB5R7pejk4IGLM9AauaBjPLnxBKwOLo4xBcQ4wfvMU9QhMGYJplWjXU1YCjRoqb/EFfONFvBU0x4MrlllmazuUqb6cJRwUzrCTN5QqXe79bY/85voTNkaClbSHhcgw7hnIIjIuD9p8Jeu47EuqLFVfbMyVBozFVS/9X5D5R+9CQ1pXW6jv2W3FG1CqQbCR0+HLV9S3v5bXMVR0dxlt2taZFFmNB644E91kNMeMXP3GNQ14zb3RKooo2K2DWQuaa4qqSemWMXjumhh0nvbH5nAQfWZ2v4H1f97uJBL/VOVdaQ1ShBE9RN06mKY8q2kY1zRTnmeOkd3VuE91p6roA6IC3km+NFHWvtepLq79KlChRokSJEiUoHv4DM3M43ysJzQkAAAAASUVORK5CYII=";
 
+const iconDry = "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path fill="#9ca3af" d="M32 4C32 4 12 28 12 42c0 11 9 18 20 18s20-7 20-18C52 28 32 4 32 4z"/></svg>');
+
+const iconFont = "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="6" y="10" width="52" height="44" rx="9" fill="none" stroke="#9ca3af" stroke-width="4"/><text x="32" y="41" font-family="sans-serif" font-size="22" font-weight="bold" fill="#9ca3af" text-anchor="middle">Aa</text></svg>');
+
+const iconCycle = "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="10" y="40" width="44" height="16" rx="8" fill="none" stroke="#9ca3af" stroke-width="4"/><path fill="none" stroke="#9ca3af" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" d="M16 46C12 38 12 28 17 20c5-8 13-12 21-11 8 1 14 7 15 15"/><path fill="none" stroke="#9ca3af" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" d="M42 5l10 8-10 8"/></svg>');
+
 export const menuItems = [
     {id: 'option_1', label: 'ESP',         stateKey: 'espStatus',   iconSrc: iconESP},
     {id: 'option_2', label: '',            stateKey: 'evMode',      iconSrc: iconEV},
@@ -18,6 +24,9 @@ export const menuItems = [
     {id: 'option_5', label: 'Modo',        stateKey: 'steerMode',   iconSrc: iconSteer},
     {id: 'option_6', label: 'Regeneração',                          iconSrc: iconRegen},
     {id: 'option_7', label: 'Gráficos',                             iconSrc: iconProfiles},
+    {id: 'option_8', label: 'Secagem',        stateKey: 'dry',      iconSrc: iconDry},
+    {id: 'option_9', label: 'Fonte',          stateKey: 'font',     iconSrc: iconFont},
+    {id: 'option_10', label: 'Circulação',    stateKey: 'recycle',  iconSrc: iconCycle},
 ];
 
 export function createMainMenu() {
@@ -31,17 +40,44 @@ export function createMainMenu() {
     const focusedItemId = getState('focusedMenuItem');
     const itemElements = {};
 
+    const formatDryStatus = (seconds) => {
+        if (!seconds || seconds <= 0) return 'OFF';
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return m + ':' + String(s).padStart(2, '0');
+    };
+
+    const FONT_SHORT = {
+        'Khand': 'Khand',
+        'Inter': 'Inter',
+        'IBM Plex Sans': 'IBM Plex',
+        'Barlow Semi Condensed': 'Barlow',
+    };
+    const formatFontStatus = (name) => FONT_SHORT[name] || name;
+
     const createLabelContent = (itemData) => {
         if (!itemData.stateKey) {
             return itemData.label;
         }
-        const stateValue = getState(itemData.stateKey);
+        var stateValue = getState(itemData.stateKey);
+        var statusClass = String(stateValue).toLowerCase();
+        var statusText = stateValue;
+        if (itemData.stateKey === 'dry') {
+            statusText = formatDryStatus(stateValue);
+            statusClass = stateValue > 0 ? 'drying' : 'off';
+        } else if (itemData.stateKey === 'font') {
+            statusText = formatFontStatus(stateValue);
+            statusClass = 'on';
+        } else if (itemData.stateKey === 'recycle') {
+            statusText = Number(stateValue) === 1 ? 'Interna' : 'Externa';
+            statusClass = Number(stateValue) === 1 ? 'on' : 'off';
+        }
         return [
             itemData.label,
             ' ',
             span({
-                className: `menu-label-status ${String(stateValue).toLowerCase()}`,
-                children: [stateValue]
+                className: `menu-label-status ${statusClass}`,
+                children: [statusText]
             })
         ];
     };

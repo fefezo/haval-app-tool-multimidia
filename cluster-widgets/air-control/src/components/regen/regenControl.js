@@ -26,8 +26,8 @@ const regenChartController = {
             data: {
                 datasets: [{
                     label: 'Regen Power',
-                    backgroundColor: 'rgba(0, 120, 255, 0.1)',
-                    borderColor: 'rgba(0, 195, 255, 0.3)',
+                    backgroundColor: 'rgba(74, 118, 180, 0.1)',
+                    borderColor: 'rgba(77, 158, 255, 0.28)',
                     borderWidth: 2,
                     pointRadius: 0,
                     fill: true,
@@ -55,7 +55,7 @@ const regenChartController = {
                         ticks: {
                             stepSize: 10,
                             padding: 17,
-                            color: 'rgba(100,172,255,0.7)',
+                            color: 'rgba(120,170,230,0.6)',
                             callback: function(value, index, ticks) { return value >= 30 && value <= 70 ? value : ''; },
 
                         },
@@ -63,7 +63,7 @@ const regenChartController = {
                           display: true,
                           drawOnChartArea: true,
                           drawTicks: true,
-                          color: 'rgba(0,160,255,0.1)'
+                          color: 'rgba(77,158,255,0.12)'
                         },
                     }
                 }

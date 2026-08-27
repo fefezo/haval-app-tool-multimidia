@@ -4,8 +4,8 @@ import { div, img, span } from '../../utils/createElement.js';
 import { updateProgressRings } from './mainAcControl.js'
 
 const ionColor = {
-    0: '#60a5fa', // on air
-    1: '#018786', // on ion
+    0: '#4d9eff', // on air
+    1: '#3f9a93', // on ion
     2: '#FFFFFF', // fan only
 }
 // Fan icon SVG as data URL

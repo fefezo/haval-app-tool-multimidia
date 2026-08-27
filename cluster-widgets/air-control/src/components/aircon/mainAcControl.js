@@ -75,6 +75,21 @@ export function createAcControlScreen() {
   const statusElement = createStatusElement();
   const tempInfoElement = createTempInfoElement()
 
+  // Highlights the arc label matching the current fan/temp state.
+  // (The original code looked up fanSpeed/temperature — keys nothing ever
+  // sets — so the active arc label never lit up. The app sends 'fan'/'temp'.)
+  const updateActiveLabels = function () {
+    container.querySelectorAll('.ac-label.active').forEach(function (el) {
+      el.classList.remove('active');
+    });
+    const fanLabel = container.querySelector(`#fan-label-${stateManager.get('fan')}`);
+    if (fanLabel) fanLabel.classList.add('active');
+    const tempVal = stateManager.get('temp');
+    const tempKey = tempVal === 16 ? 'LO' : tempVal === 32 ? 'HI' : tempVal;
+    const tempLabel = container.querySelector(`#temp-label-${tempKey}`);
+    if (tempLabel) tempLabel.classList.add('active');
+  };
+
   container.appendChild(outerRing);
   container.appendChild(innerRingShadow);
   container.appendChild(innerRing);
@@ -87,17 +102,16 @@ export function createAcControlScreen() {
   container.appendChild(tempInfoElement);
   main.appendChild(container);
 
-  setTimeout(() => {
-    const activeFanLabel = container.querySelector(`#fan-label-${stateManager.get('fanSpeed')}`);
-    if (activeFanLabel) activeFanLabel.classList.add('active');
-
-    const activeTempLabel = container.querySelector(`#temp-label-${stateManager.get('temperature')}`);
-    if (activeTempLabel) activeTempLabel.classList.add('active');
-  }, 0);
+  setTimeout(updateActiveLabels, 0);
 
   const onMountFuncs = [
       tempInfoElement.onMount,
       () => updateProgressRings(),
+      () => {
+          const unsubFan = subscribe('fan', updateActiveLabels);
+          const unsubTemp = subscribe('temp', updateActiveLabels);
+          return function () { unsubFan(); unsubTemp(); };
+      },
       () => {
           const unsubscribePower = subscribe('power', (newPower) => {
               const icon = document.getElementById('ac-power-icon');
@@ -113,11 +127,7 @@ export function createAcControlScreen() {
 
   main.onMount = () => {
     cleanupFuncs = onMountFuncs.map(fn => fn()).filter(Boolean);
-
-    const activeFanLabel = container.querySelector(`#fan-label-${stateManager.get('fanSpeed')}`);
-    if (activeFanLabel) activeFanLabel.classList.add('active');
-    const activeTempLabel = container.querySelector(`#temp-label-${stateManager.get('temperature')}`);
-    if (activeTempLabel) activeTempLabel.classList.add('active');
+    updateActiveLabels();
   };
 
   main.cleanup = () => {

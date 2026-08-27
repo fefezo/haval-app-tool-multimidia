@@ -4,4 +4,5 @@ public enum SteeringWheelAcControlType {
     FAN_SPEED,
     TEMPERATURE,
     POWER,
+    CIRCULATION,
 }

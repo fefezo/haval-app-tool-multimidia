@@ -235,6 +235,10 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
                             SteeringWheelAcControlType.POWER -> {
                                 evaluateJsIfReady(webView, "focus('power')")
                             }
+
+                            SteeringWheelAcControlType.CIRCULATION -> {
+                                evaluateJsIfReady(webView, "focus('recycle')")
+                            }
                         }
                     }
 
@@ -257,6 +261,16 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
                     ServiceManagerEventType.MAX_AUTO_AC_STATUS_CHANGED -> {
                         val maxauto = args[0] as Int
                         evaluateJsIfReady(webView, "control('maxauto', $maxauto)")
+                    }
+
+                    ServiceManagerEventType.DRYING_MODE_STATUS_CHANGED -> {
+                        val remaining = args[0] as Int
+                        evaluateJsIfReady(webView, "control('dry', $remaining)")
+                    }
+
+                    ServiceManagerEventType.FONT_CHANGED -> {
+                        val font = args[0] as String
+                        evaluateJsIfReady(webView, "control('font', '$font')")
                     }
 
                 }
@@ -336,6 +350,11 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
         evaluateJsIfReady(webView, "control('steerMode', ${MainMenu.SteerModeOptions.getLabel(currentSteerMode)})")
         evaluateJsIfReady(webView, "control('espStatus', ${MainMenu.EspOptions.getLabel(espMode)})")
         evaluateJsIfReady(webView, "control('regenMode', ${RegenScreen.RegenOptions.getLabel(regenMode)})")
+
+        // Restore the user's chosen cluster font (default: Khand)
+        val savedFont = ServiceManager.getInstance().sharedPreferences
+            .getString(SharedPreferencesKeys.LAST_CLUSTER_FONT.key, "Khand")
+        evaluateJsIfReady(webView, "control('font', '$savedFont')")
 
     }
 

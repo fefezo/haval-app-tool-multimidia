@@ -19,6 +19,14 @@ public class AcControlScreen implements Screen {
 
     private SteeringWheelAcControlType steeringWheelAcControlType = SteeringWheelAcControlType.TEMPERATURE;
 
+    // Cycle reached by ENTER. POWER is intentionally not included: it is kept in the
+    // enum only so legacy LAST_CLUSTER_AC_CONFIG values ("POWER") don't crash valueOf.
+    private static final SteeringWheelAcControlType[] STEERING_WHEEL_AC_CYCLE = {
+            SteeringWheelAcControlType.FAN_SPEED,
+            SteeringWheelAcControlType.TEMPERATURE,
+            SteeringWheelAcControlType.CIRCULATION
+    };
+
     @Override
     public String getJsName() {
         return "aircon";
@@ -28,9 +36,8 @@ public class AcControlScreen implements Screen {
     public void processKey(Key key) {
         switch (key) {
             case ENTER: // Enter
-                if (steeringWheelAcControlTypeIndex == 0) steeringWheelAcControlTypeIndex = 1;
-                else steeringWheelAcControlTypeIndex = 0;
-                steeringWheelAcControlType = SteeringWheelAcControlType.values()[steeringWheelAcControlTypeIndex];
+                steeringWheelAcControlTypeIndex = (steeringWheelAcControlTypeIndex + 1) % STEERING_WHEEL_AC_CYCLE.length;
+                steeringWheelAcControlType = STEERING_WHEEL_AC_CYCLE[steeringWheelAcControlTypeIndex];
                 serviceManager.dispatchServiceManagerEvent(ServiceManagerEventType.STEERING_WHEEL_AC_CONTROL, steeringWheelAcControlType);
                 serviceManager.getSharedPreferences().edit().putString(SharedPreferencesKeys.LAST_CLUSTER_AC_CONFIG.getKey(), steeringWheelAcControlType.name()).apply();
                 break;
@@ -58,6 +65,7 @@ public class AcControlScreen implements Screen {
                             }
                             serviceManager.updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), String.valueOf(temperature));
                             serviceManager.cancelMaxAcMode();
+                            serviceManager.cancelDryingMode();
 
                         }
                     }
@@ -88,6 +96,17 @@ public class AcControlScreen implements Screen {
                             }
                             serviceManager.updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), String.valueOf(speed));
                             serviceManager.cancelMaxAcMode();
+                            serviceManager.cancelDryingMode();
+                        }
+                    }
+                    break;
+                    case CIRCULATION: {
+                        var currentCycleMode = serviceManager.getUpdatedData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue());
+                        if (currentCycleMode != null) {
+                            boolean cycleMode = !currentCycleMode.equals("1");
+                            serviceManager.updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), cycleMode ? "1" : "0");
+                            serviceManager.cancelMaxAcMode();
+                            serviceManager.cancelDryingMode();
                         }
                     }
                     break;
@@ -124,8 +143,13 @@ public class AcControlScreen implements Screen {
     public void initialize() {
         this.serviceManager = ServiceManager.getInstance();
         var lastAcConfig = this.serviceManager.getSharedPreferences().getString(SharedPreferencesKeys.LAST_CLUSTER_AC_CONFIG.getKey(), SteeringWheelAcControlType.FAN_SPEED.name());
-        steeringWheelAcControlType = SteeringWheelAcControlType.valueOf(Objects.requireNonNullElse(lastAcConfig, SteeringWheelAcControlType.FAN_SPEED.name()));
-        steeringWheelAcControlTypeIndex = Arrays.asList(SteeringWheelAcControlType.values()).indexOf(steeringWheelAcControlType);
+        try {
+            steeringWheelAcControlType = SteeringWheelAcControlType.valueOf(Objects.requireNonNullElse(lastAcConfig, SteeringWheelAcControlType.FAN_SPEED.name()));
+        } catch (IllegalArgumentException e) {
+            steeringWheelAcControlType = SteeringWheelAcControlType.FAN_SPEED;
+        }
+        int indexInCycle = Arrays.asList(STEERING_WHEEL_AC_CYCLE).indexOf(steeringWheelAcControlType);
+        steeringWheelAcControlTypeIndex = indexInCycle == -1 ? 0 : indexInCycle;
 
         // Forces AC screen to be displayed
         serviceManager.dispatchServiceManagerEvent(ServiceManagerEventType.UPDATE_SCREEN,this);

@@ -1,0 +1,17 @@
+# Pinned payload manifest - Haval H6 install chain (mac-installer)
+# All hashes verified against official sources on 2026-08-25.
+#
+# frida binaries (fridaserver, fridainject): official Frida 17.2.15 android-arm64
+#   (byte-identical to https://github.com/frida/frida/releases/tag/17.2.15
+#    frida-server-17.2.15-android-arm64.xz and frida-inject-17.2.15-android-arm64.xz)
+# system_server.js: clean-room rewrite, repo-owned (mac-installer/system_server.js)
+# system_server_orig.js: original joaoiot bundle (vendored from the APK,
+#   used only with --legacy)
+# shizuku.apk: official RikkaApps Shizuku v13.6.0
+#   (https://github.com/RikkaApps/Shizuku/releases/tag/v13.6.0,
+#    shizuku-v13.6.0.r1086.2650830c-release.apk)
+bed90f01f9d3bc9d96d79993790902b5d0b61bb27ca6aea4f9800877ecaad40a  system_server.js
+1a127836846f5cf24d6c0be3015bd00108128e7d5d36fe978857de128b5a97e4  system_server_orig.js
+cd398a3466cb3cf689c0b43bd0bdf7219ce5f017be12e86efa8ef637a0c8453f  fridaserver
+768dbd9bb7c39cff56b5cfbf7d57514033ae52c10476784f79f8daa53d83cd3a  fridainject
+6e273ab0e991c4e79bc8b1bbb9b9dd739ccac1a8712a541a214078886b7b790f  shizuku.apk

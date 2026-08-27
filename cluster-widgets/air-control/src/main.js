@@ -67,6 +67,20 @@ window.control = function(key, value) {
     setState(key, value);
 };
 
+// Font switcher: state 'font' holds the display name; map it to a data-* slug
+// that CSS uses to swap --font-ui. Applied on change and at boot.
+const FONT_SLUGS = {
+    'Khand': 'khand',
+    'Inter': 'inter',
+    'IBM Plex Sans': 'ibm-plex',
+    'Barlow Semi Condensed': 'barlow',
+};
+const applyFont = function (name) {
+    document.body.dataset.font = FONT_SLUGS[name] || 'khand';
+};
+applyFont(get('font'));
+subscribe('font', applyFont);
+
 window.cleanup = function() {
     if (currentComponent && currentComponent.cleanup) {
         currentComponent.cleanup();

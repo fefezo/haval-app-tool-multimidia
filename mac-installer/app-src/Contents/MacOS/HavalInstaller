@@ -1,0 +1,15 @@
+#!/bin/bash
+# Haval Installer - launcher.
+# Double-clicking the .app runs this script, which opens a Terminal window
+# running the install menu. Everything the installer needs lives inside the
+# app bundle (Resources/) - no internet, no downloads.
+set -u
+RES="$(cd "$(dirname "$0")/../Resources" && pwd)" || exit 1
+cd "$RES" || exit 1
+
+/usr/bin/osascript <<OSA
+tell application "Terminal"
+    activate
+    do script "cd '$RES' && exec bash './menu.sh'"
+end tell
+OSA

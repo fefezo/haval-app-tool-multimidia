@@ -200,6 +200,12 @@ public class ServiceManager {
     private final Map<String, String> previousAcState = new HashMap<>();
     private boolean isMaxAcActive = false;
     private Runnable maxAcTimeoutRunnable;
+    private final Map<String, String> previousDryingState = new HashMap<>();
+    private boolean isDryingModeActive = false;
+    private int dryingModeRemainingSeconds = 0;
+    private Runnable dryingModeTimeoutRunnable;
+    private Runnable dryingModeTickRunnable;
+    private static final int DRYING_MODE_DURATION_SECONDS = 120;
 
 
     private ServiceManager() {
@@ -652,6 +658,14 @@ public class ServiceManager {
                 } catch (RemoteException e) {
                     Log.w(TAG, "Error to launch AVM camera");
                 }
+                break;
+            case START_DRYING_MODE:
+                if (isDryingModeActive) {
+                    cancelDryingMode();
+                } else {
+                    startDryingMode();
+                }
+                Log.w(TAG, "Drying mode toggled via steering wheel button");
                 break;
         }
     }
@@ -1143,6 +1157,131 @@ public class ServiceManager {
 
     }
 
+    /**
+     * Drying mode: blower only (compressor off), HI temperature, fan max and fresh air
+     * (outside circulation) for 2 minutes, then the HVAC is turned off.
+     * Used to dry the evaporator and prevent mold after using the AC.
+     */
+    public void startDryingMode() {
+        if (isDryingModeActive) {
+            cancelDryingMode();
+            return;
+        }
+        try {
+            // Do not run alongside the Max AC automation
+            cancelMaxAcMode();
+
+            String prevPower = getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue());
+            String prevEnabled = getUpdatedData(CarConstants.CAR_HVAC_AC_ENABLE.getValue());
+            String prevFan = getUpdatedData(CarConstants.CAR_HVAC_FAN_SPEED.getValue());
+            String prevDriverTemp = getUpdatedData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue());
+            String prevPassTemp = getUpdatedData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue());
+            String prevAuto = getUpdatedData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue());
+            String prevCycle = getUpdatedData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue());
+            String prevSync = getUpdatedData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue());
+            // Vent direction (windshield / face / feet...) and AQS: keep them so drying
+            // can restore them and so AQS cannot silently re-enable internal circulation.
+            String prevBlower = getUpdatedData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue());
+            String prevAqs = getUpdatedData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue());
+
+            previousDryingState.put(CarConstants.CAR_HVAC_POWER_MODE.getValue(), prevPower);
+            previousDryingState.put(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), prevEnabled);
+            previousDryingState.put(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), prevFan);
+            previousDryingState.put(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), prevDriverTemp);
+            previousDryingState.put(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), prevPassTemp);
+            previousDryingState.put(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), prevAuto);
+            previousDryingState.put(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), prevCycle);
+            previousDryingState.put(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), prevSync);
+            previousDryingState.put(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), prevBlower);
+            previousDryingState.put(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), prevAqs);
+
+            updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1");
+            updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), "0");
+            // Turning AUTO off can make the module snap the vent direction to its own
+            // default — re-apply the user's direction so drying keeps it untouched.
+            if (prevBlower != null) {
+                updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), prevBlower);
+            }
+            updateData(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), "0");
+            updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0"); // AQS could force internal circulation back
+            updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), "7");
+            updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), "32.0");
+            updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), "32.0");
+            updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
+            updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "0"); // 0 = fresh air / outside circulation, sent LAST so no later command overrides it
+
+            isDryingModeActive = true;
+            dryingModeRemainingSeconds = DRYING_MODE_DURATION_SECONDS;
+
+            dryingModeTickRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (!isDryingModeActive) return;
+                    dryingModeRemainingSeconds--;
+                    if (dryingModeRemainingSeconds <= 0) {
+                        finishDryingMode(false);
+                        return;
+                    }
+                    dispatchServiceManagerEvent(ServiceManagerEventType.DRYING_MODE_STATUS_CHANGED, dryingModeRemainingSeconds);
+                    backgroundHandler.postDelayed(this, 1000L);
+                }
+            };
+            backgroundHandler.postDelayed(dryingModeTickRunnable, 1000L);
+
+            dryingModeTimeoutRunnable = () -> finishDryingMode(false);
+            backgroundHandler.postDelayed(dryingModeTimeoutRunnable, DRYING_MODE_DURATION_SECONDS * 1000L);
+
+            Log.w(TAG, "Drying mode started for " + DRYING_MODE_DURATION_SECONDS + " seconds");
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting drying mode", e);
+        }
+    }
+
+    public void cancelDryingMode() {
+        finishDryingMode(true);
+    }
+
+    public boolean isDryingModeActive() {
+        return isDryingModeActive;
+    }
+
+    private void finishDryingMode(boolean restorePower) {
+        if (!isDryingModeActive) return;
+        try {
+            // Restore everything EXCEPT power first, then power LAST. The snapshot is a
+            // HashMap, so iterating it directly sends commands in arbitrary order — and if
+            // POWER=0 went out before FAN=prev, the module re-woke the blower on the fan
+            // command, leaving the ventilation running after "off" was shown.
+            String powerValue = null;
+            for (Map.Entry<String, String> entry : previousDryingState.entrySet()) {
+                if (entry.getValue() == null) continue;
+                if (entry.getKey().equals(CarConstants.CAR_HVAC_POWER_MODE.getValue())) {
+                    powerValue = entry.getValue();
+                    continue;
+                }
+                updateData(entry.getKey(), entry.getValue());
+            }
+            if (powerValue != null) {
+                // Natural completion leaves the HVAC off; manual cancel restores the previous power state
+                updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), restorePower ? powerValue : "0");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error finishing drying mode", e);
+        } finally {
+            isDryingModeActive = false;
+            previousDryingState.clear();
+            if (dryingModeTimeoutRunnable != null) {
+                backgroundHandler.removeCallbacks(dryingModeTimeoutRunnable);
+                dryingModeTimeoutRunnable = null;
+            }
+            if (dryingModeTickRunnable != null) {
+                backgroundHandler.removeCallbacks(dryingModeTickRunnable);
+                dryingModeTickRunnable = null;
+            }
+            dispatchServiceManagerEvent(ServiceManagerEventType.DRYING_MODE_STATUS_CHANGED, 0);
+        }
+    }
+
     public boolean isMaxAcActive() {
         return isMaxAcActive;
     }
@@ -1155,6 +1294,7 @@ public class ServiceManager {
             float threshold = sharedPreferences.getFloat(SharedPreferencesKeys.MAX_AC_ON_UNLOCK_THRESHOLD.getKey(), 35.0f);
 
             if (currentTemp >= threshold && !isMaxAcActive) {
+                cancelDryingMode();
                 String prevPower = getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue());
                 String prevEnabled = getUpdatedData(CarConstants.CAR_HVAC_AC_ENABLE.getValue());
                 String prevFan = getUpdatedData(CarConstants.CAR_HVAC_FAN_SPEED.getValue());

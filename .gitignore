@@ -35,3 +35,14 @@ google-services.json
 
 .DS_Store
 REFACTORING_SUMMARY.md
+
+# Local preview artifacts (mockups, screenshots)
+.preview/
+
+# macOS installer build outputs (archives ~109MB each, APKs, frida binaries)
+mac-installer/dist/
+# Payloads binários (frida/shizuku oficiais, baixáveis e pinados no SHA256SUMS);
+# mantemos no repo o manifest de hashes e o bundle original vendado (--legacy)
+mac-installer/payloads/*
+!mac-installer/payloads/SHA256SUMS
+!mac-installer/payloads/system_server_orig.js

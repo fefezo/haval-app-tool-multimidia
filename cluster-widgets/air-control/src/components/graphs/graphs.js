@@ -105,8 +105,8 @@ startGlobalDataCollector();
 const graphController = {
 
     colors: {
-        primary: '#00c3ff',
-        secondary: '#9affb5'
+        primary: '#4d9eff',
+        secondary: '#7fd4a5'
     },
 
     chartInstance: null,
@@ -212,24 +212,24 @@ const graphController = {
                 datasets: [
                     {
                         label: '',
-                        backgroundColor: 'rgba(0, 120, 255, 0.15)',
-                        borderColor: '#00c3ff',
+                        backgroundColor: 'rgba(74, 118, 180, 0.14)',
+                        borderColor: '#4d9eff',
                         borderWidth: 2,
                         pointRadius: 0,
                         fill: true,
                         tension: 0.3,
-                        shadowColor: 'rgba(0, 195, 255, 0.5)',
+                        shadowColor: 'rgba(77, 158, 255, 0.35)',
                         shadowBlur: 10,
                     },
                     {
                         label: '',
-                        backgroundColor: 'rgba(0, 120, 255, 0.15)',
-                        borderColor: '#00c3ff',
+                        backgroundColor: 'rgba(74, 118, 180, 0.14)',
+                        borderColor: '#4d9eff',
                         borderWidth: 2,
                         pointRadius: 0,
                         fill: true,
                         tension: 0.3,
-                        shadowColor: 'rgba(0, 195, 255, 0.5)',
+                        shadowColor: 'rgba(77, 158, 255, 0.35)',
                         shadowBlur: 10,
                     }]
             },
@@ -256,14 +256,14 @@ const graphController = {
                             display: true,
                             padding: 10,
                             stepSize: 20,
-                            color: 'rgba(100,172,255,0.7)',
+                            color: 'rgba(120,170,230,0.6)',
                         },
                         grid: {
                             display: true,
                             drawOnChartArea: true,
                             drawTicks: false,
-                            color: 'rgba(0,160,255,0.3)',
-                            zeroLineColor: 'rgba(100, 172, 255, 0.8)',
+                            color: 'rgba(77,158,255,0.3)',
+                            zeroLineColor: 'rgba(120, 170, 230, 0.55)',
                             zeroLineWidth: 3
                         },
                     },
@@ -277,7 +277,7 @@ const graphController = {
                             padding: 10,
                             align: 'start',
                             stepSize: 2,
-                            color: 'rgba(0, 255, 187, 0.5)',
+                            color: 'rgba(127, 212, 165, 0.4)',
                         },
                         grid: {
                             drawOnChartArea: false,
