@@ -1,0 +1,3 @@
+# Scripts e payloads do instalador macOS: LF obrigatório no checkout.
+# CRLF quebra a execução no Mac e quebra os hashes do SHA256SUMS.
+mac-installer/** text eol=lf
