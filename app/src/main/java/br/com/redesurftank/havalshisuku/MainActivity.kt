@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -298,6 +299,41 @@ data class DrawerMenuItem(
     val icon: ImageVector
 )
 
+// Direção do ar (car.hvac.blower_mode): valores do módulo GWM. Combinações somam
+// os bits (1 = para-brisa, 2 = corpo, 4 = pés). O valor vazio mantém a direção atual.
+private val startupAcBlowerOptions = listOf(
+    "" to "Não mudar",
+    "1" to "Para-brisa",
+    "2" to "Corpo",
+    "4" to "Pés",
+    "3" to "Corpo + brisa",
+    "5" to "Pés + brisa",
+    "6" to "Pés + corpo",
+    "7" to "Todos"
+)
+
+@Composable
+private fun RowScope.StartupAcOptionButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .weight(1f)
+            .height(36.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) AppColors.Primary else AppColors.SurfaceVariant,
+            contentColor = Color.White
+        ),
+        contentPadding = PaddingValues(horizontal = 4.dp),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Text(label, fontSize = 12.sp, maxLines = 1)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BasicSettingsTab() {
@@ -317,6 +353,11 @@ fun BasicSettingsTab() {
     var enableCustomMenu by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_MENU.key, false)) }
     var setStartupVolume by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.SET_STARTUP_VOLUME.key, false)) }
     var volume by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.STARTUP_VOLUME.key, 1)) }
+    var setStartupAc by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.SET_STARTUP_AC.key, false)) }
+    // Temperatura armazenada em unidades de 0,5 °C (16.0 °C = 32 ... 32.0 °C = 64) para o slider inteiro
+    var startupAcTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.key, "22.0")?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
+    var startupAcBlower by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STARTUP_AC_BLOWER_MODE.key, "") ?: "") }
+    var startupAcCycle by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.key, "0") ?: "0") }
     var closeWindowsOnSpeed by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLOSE_WINDOWS_ON_SPEED.key, false)) }
     var closeSunroofOnSpeed by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLOSE_SUNROOF_ON_SPEED.key, false)) }
     var speedThreshold by remember { mutableFloatStateOf(prefs.getFloat(SharedPreferencesKeys.SPEED_THRESHOLD.key, 15f)) }
@@ -858,6 +899,72 @@ fun BasicSettingsTab() {
                     prefs.edit { putInt(SharedPreferencesKeys.STARTUP_VOLUME.key, newVolume) }
                 },
                 sliderLabel = "Volume: $volume"
+            ),
+            SettingItem(
+                title = "Definir ar-condicionado ao ligar",
+                description = SharedPreferencesKeys.SET_STARTUP_AC.description,
+                checked = setStartupAc,
+                onCheckedChange = {
+                    setStartupAc = it
+                    prefs.edit { putBoolean(SharedPreferencesKeys.SET_STARTUP_AC.key, it) }
+                },
+                sliderValue = startupAcTemp,
+                sliderRange = 32..64,
+                sliderStep = 1,
+                onSliderChange = { newTemp ->
+                    startupAcTemp = newTemp
+                    prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.key, "%.1f".format(newTemp / 2.0)) }
+                },
+                sliderLabel = "Temperatura: %.1f°C".format(startupAcTemp / 2.0),
+                customContent = {
+                    Text(
+                        "Circulação: ${if (startupAcCycle == "1") "Interna" else "Externa (ar de fora)"}",
+                        color = Color.White,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StartupAcOptionButton(
+                            label = "Externa",
+                            selected = startupAcCycle != "1",
+                            onClick = {
+                                startupAcCycle = "0"
+                                prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.key, "0") }
+                            }
+                        )
+                        StartupAcOptionButton(
+                            label = "Interna",
+                            selected = startupAcCycle == "1",
+                            onClick = {
+                                startupAcCycle = "1"
+                                prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.key, "1") }
+                            }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Direção do ar", color = Color.White, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    startupAcBlowerOptions.chunked(4).forEach { rowOptions ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            rowOptions.forEach { (value, label) ->
+                                StartupAcOptionButton(
+                                    label = label,
+                                    selected = startupAcBlower == value,
+                                    onClick = {
+                                        startupAcBlower = value
+                                        prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_BLOWER_MODE.key, value) }
+                                    }
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    Text(
+                        "Direção: valores do protocolo GWM — confira no painel qual combinação aparece e ajuste se necessário.",
+                        color = AppColors.TextSecondary,
+                        fontSize = 11.sp
+                    )
+                }
             )
         )
     )

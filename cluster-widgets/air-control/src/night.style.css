@@ -473,7 +473,7 @@ button {
 
 .temp-info-container {
   position: absolute;
-  bottom: 150px;
+  bottom: 30px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -516,7 +516,6 @@ button {
   position: absolute;
   width: 452px;
   height: 452px;
-  border: 3px solid #2f4e8c;
   border-radius: 50%;
   box-shadow: 0 0 12px rgba(47, 78, 140, 0.45);
   background: radial-gradient(circle, #ffffff 50%, #2a5fae 100%);
@@ -620,7 +619,7 @@ button {
 }
 
 .temp-display-label {
-  font-size: 72px;
+  font-size: 52px;
   line-height: 0.9;
 }
 

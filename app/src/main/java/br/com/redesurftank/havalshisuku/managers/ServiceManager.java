@@ -497,6 +497,23 @@ public class ServiceManager {
                     Log.w(TAG, "Startup volume set to: " + startupVolume);
                 }
             }
+            if (sharedPreferences.getBoolean(SharedPreferencesKeys.SET_STARTUP_AC.getKey(), false)) {
+                // Default HVAC state applied every time the car turns on: driver/passenger
+                // temperature, vent direction and circulation mode. POWER is intentionally
+                // NOT touched — the user asked for the state defaults, not to force the AC on.
+                String startupAcTemp = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.getKey(), "22.0");
+                String startupAcBlower = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_BLOWER_MODE.getKey(), null);
+                String startupAcCycle = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.getKey(), "0");
+                updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), startupAcTemp);
+                updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), startupAcTemp);
+                updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
+                if (startupAcBlower != null && !startupAcBlower.isEmpty()) {
+                    updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), startupAcBlower);
+                }
+                updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), startupAcCycle);
+                updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0"); // AQS could force internal circulation back
+                Log.w(TAG, "Startup AC set: temp=" + startupAcTemp + " blower=" + startupAcBlower + " cycle=" + startupAcCycle);
+            }
             boolean isForceDisableMonitoring = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_MONITORING.getKey(), false);
             if (isForceDisableMonitoring) {
                 setMonitoringEnabled(false);
@@ -1221,6 +1238,13 @@ public class ServiceManager {
                     if (dryingModeRemainingSeconds <= 0) {
                         finishDryingMode(false);
                         return;
+                    }
+                    // The HVAC module re-asserts internal circulation while drying (its own
+                    // dehumidification logic). Re-assert fresh-air (CYCLE=0) + AQS off every
+                    // 3 seconds so the drying really dries with outside air, as requested.
+                    if (dryingModeRemainingSeconds % 3 == 0) {
+                        updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0");
+                        updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "0"); // 0 = fresh air / outside circulation
                     }
                     dispatchServiceManagerEvent(ServiceManagerEventType.DRYING_MODE_STATUS_CHANGED, dryingModeRemainingSeconds);
                     backgroundHandler.postDelayed(this, 1000L);
