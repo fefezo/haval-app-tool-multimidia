@@ -1,3 +1,7 @@
 # Scripts e payloads do instalador macOS: LF obrigatório no checkout.
 # CRLF quebra a execução no Mac e quebra os hashes do SHA256SUMS.
 mac-installer/** text eol=lf
+
+# Widget do cluster embutido no APK: LF obrigatório no checkout.
+# CRLF quebra o hash verificado no APK (unzip -p vs disco).
+app/src/main/res/raw/*.html text eol=lf
