@@ -112,7 +112,7 @@ fun SettingCard(
             ) {
                 Text(
                     text = title,
-                    fontSize = 18.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Medium,
                     color = if (enabled) AppColors.TextPrimary else AppColors.TextDisabled,
                     modifier = Modifier.weight(1f).padding(end = 12.dp),
@@ -139,9 +139,9 @@ fun SettingCard(
             Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = description,
-                fontSize = 12.sp,
+                fontSize = 15.sp,
                 color = if (enabled) AppColors.TextSecondary else Color(0xFF606060),
-                lineHeight = 14.sp,
+                lineHeight = 19.sp,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
@@ -153,7 +153,7 @@ fun SettingCard(
                     if (sliderLabel != null) {
                         Text(
                             text = sliderLabel,
-                            fontSize = 14.sp,
+                            fontSize = 16.sp,
                             color = AppColors.TextPrimary,
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
@@ -209,131 +209,57 @@ fun TwoColumnSettingsLayout(
     modifier: Modifier = Modifier,
     bottomContent: @Composable (() -> Unit)? = null
 ) {
-    // Organiza os items em duas colunas (ordem por coluna)
-    val midPoint = (settingsList.size + 1) / 2
-    val leftColumnItems = settingsList.take(midPoint)
-    val rightColumnItems = settingsList.drop(midPoint)
-    
-    // Usa um scroll único com colunas que permitem alturas independentes
+    // Layout de coluna única (feedback: fonte maior, sem duas colunas; scroll cobre a lista)
     Box(
         modifier = modifier
             .fillMaxSize()
     ) {
         val scrollState = rememberScrollState()
-        
+
         if (bottomContent != null) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(scrollState)
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    // Coluna esquerda
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        verticalArrangement = Arrangement.Top
-                    ) {
-                        leftColumnItems.forEach { setting ->
-                            SettingCard(
-                                title = setting.title,
-                                description = setting.description,
-                                checked = setting.checked,
-                                onCheckedChange = setting.onCheckedChange,
-                                enabled = setting.enabled,
-                                sliderValue = setting.sliderValue,
-                                sliderRange = setting.sliderRange,
-                                sliderStep = setting.sliderStep,
-                                onSliderChange = setting.onSliderChange,
-                                sliderLabel = setting.sliderLabel,
-                                customContent = setting.customContent
-                            )
-                        }
-                    }
-                    
-                    // Coluna direita
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        verticalArrangement = Arrangement.Top
-                    ) {
-                        rightColumnItems.forEach { setting ->
-                            SettingCard(
-                                title = setting.title,
-                                description = setting.description,
-                                checked = setting.checked,
-                                onCheckedChange = setting.onCheckedChange,
-                                enabled = setting.enabled,
-                                sliderValue = setting.sliderValue,
-                                sliderRange = setting.sliderRange,
-                                sliderStep = setting.sliderStep,
-                                onSliderChange = setting.onSliderChange,
-                                sliderLabel = setting.sliderLabel,
-                                customContent = setting.customContent
-                            )
-                        }
-                    }
+                settingsList.forEach { setting ->
+                    SettingCard(
+                        title = setting.title,
+                        description = setting.description,
+                        checked = setting.checked,
+                        onCheckedChange = setting.onCheckedChange,
+                        enabled = setting.enabled,
+                        sliderValue = setting.sliderValue,
+                        sliderRange = setting.sliderRange,
+                        sliderStep = setting.sliderStep,
+                        onSliderChange = setting.onSliderChange,
+                        sliderLabel = setting.sliderLabel,
+                        customContent = setting.customContent
+                    )
                 }
-                
+
                 bottomContent()
             }
         } else {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(scrollState),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    .verticalScroll(scrollState)
             ) {
-                // Coluna esquerda
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    verticalArrangement = Arrangement.Top
-                ) {
-                    leftColumnItems.forEach { setting ->
-                        SettingCard(
-                            title = setting.title,
-                            description = setting.description,
-                            checked = setting.checked,
-                            onCheckedChange = setting.onCheckedChange,
-                            enabled = setting.enabled,
-                            sliderValue = setting.sliderValue,
-                            sliderRange = setting.sliderRange,
-                            sliderStep = setting.sliderStep,
-                            onSliderChange = setting.onSliderChange,
-                            sliderLabel = setting.sliderLabel,
-                            customContent = setting.customContent
-                        )
-                    }
-                }
-                
-                // Coluna direita
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    verticalArrangement = Arrangement.Top
-                ) {
-                    rightColumnItems.forEach { setting ->
-                        SettingCard(
-                            title = setting.title,
-                            description = setting.description,
-                            checked = setting.checked,
-                            onCheckedChange = setting.onCheckedChange,
-                            enabled = setting.enabled,
-                            sliderValue = setting.sliderValue,
-                            sliderRange = setting.sliderRange,
-                            sliderStep = setting.sliderStep,
-                            onSliderChange = setting.onSliderChange,
-                            sliderLabel = setting.sliderLabel,
-                            customContent = setting.customContent
-                        )
-                    }
+                settingsList.forEach { setting ->
+                    SettingCard(
+                        title = setting.title,
+                        description = setting.description,
+                        checked = setting.checked,
+                        onCheckedChange = setting.onCheckedChange,
+                        enabled = setting.enabled,
+                        sliderValue = setting.sliderValue,
+                        sliderRange = setting.sliderRange,
+                        sliderStep = setting.sliderStep,
+                        onSliderChange = setting.onSliderChange,
+                        sliderLabel = setting.sliderLabel,
+                        customContent = setting.customContent
+                    )
                 }
             }
         }

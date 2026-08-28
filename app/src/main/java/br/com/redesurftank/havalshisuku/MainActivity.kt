@@ -312,6 +312,14 @@ private val startupAcBlowerOptions = listOf(
     "7" to "Todos"
 )
 
+// Zonas da direção do ar (bits de car.hvac.blower_mode): 1 = para-brisa, 2 = corpo, 4 = pés.
+// Marcar/desmarcar as zonas monta o bitmask; vazio = o Max AC não muda a direção.
+private val blowerZoneOptions = listOf(
+    1 to "Para-brisa",
+    2 to "Corpo",
+    4 to "Pés"
+)
+
 @Composable
 private fun RowScope.StartupAcOptionButton(
     label: String,
@@ -357,7 +365,8 @@ fun BasicSettingsTab() {
     // Temperatura armazenada em unidades de 0,5 °C (16.0 °C = 32 ... 32.0 °C = 64) para o slider inteiro
     var startupAcTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.key, "22.0")?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
     var startupAcBlower by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STARTUP_AC_BLOWER_MODE.key, "") ?: "") }
-    var startupAcCycle by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.key, "0") ?: "0") }
+    // H6: cycle_mode 1 = ar externo, 0 = interna (invertido vs padrão AOSP)
+    var startupAcCycle by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.key, "1") ?: "1") }
     var closeWindowsOnSpeed by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLOSE_WINDOWS_ON_SPEED.key, false)) }
     var closeSunroofOnSpeed by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLOSE_SUNROOF_ON_SPEED.key, false)) }
     var speedThreshold by remember { mutableFloatStateOf(prefs.getFloat(SharedPreferencesKeys.SPEED_THRESHOLD.key, 15f)) }
@@ -366,6 +375,8 @@ fun BasicSettingsTab() {
     var maxAcOnUnlockThreshold by remember { mutableFloatStateOf(prefs.getFloat(SharedPreferencesKeys.MAX_AC_ON_UNLOCK_THRESHOLD.key, 34f)) }
     var maxAcTargetTemp by remember { mutableFloatStateOf(prefs.getFloat(SharedPreferencesKeys.MAX_AC_TARGET_TEMP.key, 28f)) }
     var maxAcTimeout by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.MAX_AC_TIMEOUT.key, 0)) }
+    var maxAcSeatVentilation by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.MAX_AC_SEAT_VENTILATION.key, false)) }
+    var maxAcBlower by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.MAX_AC_BLOWER_MODE.key, "") ?: "") }
     var enableAutoBrightness by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_AUTO_BRIGHTNESS.key, false)) }
     var nightStartHour by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.NIGHT_START_HOUR.key, 20)) }
     var nightStartMinute by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.NIGHT_START_MINUTE.key, 0)) }
@@ -554,6 +565,72 @@ fun BasicSettingsTab() {
                                         }
                                     }
                                 }
+                            }
+                            Column {
+                                Text(
+                                    text = "Ventilação no banco do motorista",
+                                    fontSize = 15.sp,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { maxAcSeatVentilation = !maxAcSeatVentilation },
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = maxAcSeatVentilation,
+                                        onCheckedChange = {
+                                            maxAcSeatVentilation = it
+                                            prefs.edit { putBoolean(SharedPreferencesKeys.MAX_AC_SEAT_VENTILATION.key, it) }
+                                        }
+                                    )
+                                    Text(
+                                        text = if (maxAcSeatVentilation) "Ventilação ligada (nível máximo)" else "Ventilação desligada",
+                                        fontSize = 14.sp,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(
+                                    text = "Direção do ar (ligar ou desligar as saídas)",
+                                    fontSize = 15.sp,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                blowerZoneOptions.forEach { (bit, label) ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                val current = maxAcBlower.toIntOrNull() ?: 0
+                                                val checked = (current and bit) != 0
+                                                val newValue = if (checked) current and bit.inv() else current or bit
+                                                maxAcBlower = if (newValue == 0) "" else newValue.toString()
+                                                prefs.edit { putString(SharedPreferencesKeys.MAX_AC_BLOWER_MODE.key, maxAcBlower) }
+                                            },
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = ((maxAcBlower.toIntOrNull() ?: 0) and bit) != 0,
+                                            onCheckedChange = {
+                                                val current = maxAcBlower.toIntOrNull() ?: 0
+                                                val checked = (current and bit) != 0
+                                                val newValue = if (checked) current and bit.inv() else current or bit
+                                                maxAcBlower = if (newValue == 0) "" else newValue.toString()
+                                                prefs.edit { putString(SharedPreferencesKeys.MAX_AC_BLOWER_MODE.key, maxAcBlower) }
+                                            }
+                                        )
+                                        Text(label, fontSize = 14.sp, color = Color.White)
+                                    }
+                                }
+                                Text(
+                                    text = if (maxAcBlower.isEmpty()) "Nenhuma selecionada — o Max AC não muda a direção do ar" else "Valor: $maxAcBlower",
+                                    fontSize = 12.sp,
+                                    color = AppColors.TextSecondary
+                                )
                             }
                         }
                     }
@@ -918,31 +995,32 @@ fun BasicSettingsTab() {
                 sliderLabel = "Temperatura: %.1f°C".format(startupAcTemp / 2.0),
                 customContent = {
                     Text(
-                        "Circulação: ${if (startupAcCycle == "1") "Interna" else "Externa (ar de fora)"}",
+                        // H6: cycle_mode 1 = ar externo (fresh air), 0 = interna (invertido vs AOSP)
+                        "Circulação: ${if (startupAcCycle == "1") "Externa (ar de fora)" else "Interna"}",
                         color = Color.White,
-                        fontSize = 14.sp
+                        fontSize = 15.sp
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         StartupAcOptionButton(
                             label = "Externa",
-                            selected = startupAcCycle != "1",
-                            onClick = {
-                                startupAcCycle = "0"
-                                prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.key, "0") }
-                            }
-                        )
-                        StartupAcOptionButton(
-                            label = "Interna",
                             selected = startupAcCycle == "1",
                             onClick = {
                                 startupAcCycle = "1"
                                 prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.key, "1") }
                             }
                         )
+                        StartupAcOptionButton(
+                            label = "Interna",
+                            selected = startupAcCycle != "1",
+                            onClick = {
+                                startupAcCycle = "0"
+                                prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.key, "0") }
+                            }
+                        )
                     }
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Direção do ar", color = Color.White, fontSize = 14.sp)
+                    Text("Direção do ar", color = Color.White, fontSize = 15.sp)
                     Spacer(modifier = Modifier.height(8.dp))
                     startupAcBlowerOptions.chunked(4).forEach { rowOptions ->
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -962,7 +1040,7 @@ fun BasicSettingsTab() {
                     Text(
                         "Direção: valores do protocolo GWM — confira no painel qual combinação aparece e ajuste se necessário.",
                         color = AppColors.TextSecondary,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
                 }
             )

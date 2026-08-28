@@ -503,7 +503,7 @@ public class ServiceManager {
                 // NOT touched — the user asked for the state defaults, not to force the AC on.
                 String startupAcTemp = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.getKey(), "22.0");
                 String startupAcBlower = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_BLOWER_MODE.getKey(), null);
-                String startupAcCycle = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.getKey(), "0");
+                String startupAcCycle = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.getKey(), "1"); // 1 = externa no H6
                 updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), startupAcTemp);
                 updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), startupAcTemp);
                 updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
@@ -1225,7 +1225,7 @@ public class ServiceManager {
             updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), "32.0");
             updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), "32.0");
             updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
-            updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "0"); // 0 = fresh air / outside circulation, sent LAST so no later command overrides it
+            updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "1"); // H6: 1 = fresh air / outside circulation (propriedade invertida vs AOSP), sent LAST so no later command overrides it
 
             isDryingModeActive = true;
             dryingModeRemainingSeconds = DRYING_MODE_DURATION_SECONDS;
@@ -1239,12 +1239,11 @@ public class ServiceManager {
                         finishDryingMode(false);
                         return;
                     }
-                    // The HVAC module re-asserts internal circulation while drying (its own
-                    // dehumidification logic). Re-assert fresh-air (CYCLE=0) + AQS off every
+                    // Re-assert fresh-air circulation (CYCLE=1 on the H6) + AQS off every
                     // 3 seconds so the drying really dries with outside air, as requested.
                     if (dryingModeRemainingSeconds % 3 == 0) {
                         updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0");
-                        updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "0"); // 0 = fresh air / outside circulation
+                        updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "1"); // H6: 1 = fresh air / outside circulation
                     }
                     dispatchServiceManagerEvent(ServiceManagerEventType.DRYING_MODE_STATUS_CHANGED, dryingModeRemainingSeconds);
                     backgroundHandler.postDelayed(this, 1000L);
@@ -1328,6 +1327,8 @@ public class ServiceManager {
                 String prevAnion = getUpdatedData(CarConstants.CAR_HVAC_ANION_ENABLE.getValue());
                 String prevAQS = getUpdatedData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue());
                 String prevSync = getUpdatedData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue());
+                String prevSeatVent = getUpdatedData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue());
+                String prevBlower = getUpdatedData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue());
 
                 previousAcState.put(CarConstants.CAR_HVAC_POWER_MODE.getValue(), prevPower);
                 previousAcState.put(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), prevEnabled);
@@ -1338,6 +1339,8 @@ public class ServiceManager {
                 previousAcState.put(CarConstants.CAR_HVAC_ANION_ENABLE.getValue(), prevAnion);
                 previousAcState.put(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), prevAQS);
                 previousAcState.put(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), prevSync);
+                previousAcState.put(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), prevSeatVent);
+                previousAcState.put(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), prevBlower);
 
                 updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1");
                 updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), "0");
@@ -1346,6 +1349,14 @@ public class ServiceManager {
                 updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), "16.0");
                 updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
                 updateData(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), "1");
+                // Opções do Max AC: ventilação do banco (motorista) e direção do ar.
+                if (sharedPreferences.getBoolean(SharedPreferencesKeys.MAX_AC_SEAT_VENTILATION.getKey(), false)) {
+                    updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "3");
+                }
+                String maxAcBlower = sharedPreferences.getString(SharedPreferencesKeys.MAX_AC_BLOWER_MODE.getKey(), "");
+                if (maxAcBlower != null && !maxAcBlower.isEmpty()) {
+                    updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), maxAcBlower);
+                }
 
                 isMaxAcActive = true;
                 

@@ -19,7 +19,8 @@ var formatSeconds = function (seconds) {
 
 export function createStatusElement() {
     const isAutoOn = stateManager.get('auto') === 1;
-    const isRecycleIn = stateManager.get('recycle') === 1;
+    // H6: car.hvac.cycle_mode é INVERTIDO vs AOSP — 1 = ar externo (fresh air), 0 = interna
+    const isRecycleIn = stateManager.get('recycle') !== 1;
     const isMaxAuto = stateManager.get('maxauto') === 1;
 
     var autoModeIconElement = img({
@@ -80,7 +81,8 @@ export function createStatusElement() {
     });
 
     var unsubscribeRecycle = subscribe('recycle', function(newRecycle) {
-        const isRecycleIn = newRecycle === 1;
+        // H6: cycle_mode 1 = ar externo (fresh air), 0 = interna
+        const isRecycleIn = newRecycle !== 1;
         recycleIconElement.src = isRecycleIn ? recycleIn : recycleOut;
     });
 

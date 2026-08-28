@@ -69,7 +69,8 @@ export function createMainMenu() {
             statusText = formatFontStatus(stateValue);
             statusClass = 'on';
         } else if (itemData.stateKey === 'recycle') {
-            statusText = Number(stateValue) === 1 ? 'Interna' : 'Externa';
+            // H6: cycle_mode 1 = ar externo (fresh air), 0 = interna (invertido vs AOSP)
+            statusText = Number(stateValue) === 1 ? 'Externa' : 'Interna';
             statusClass = Number(stateValue) === 1 ? 'on' : 'off';
         }
         return [
