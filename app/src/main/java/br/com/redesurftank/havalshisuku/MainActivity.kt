@@ -47,13 +47,20 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeveloperMode
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Weekend
+import androidx.compose.material.icons.filled.Window
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -169,9 +176,22 @@ class MainActivity : ComponentActivity() {
 fun MainScreen(modifier: Modifier = Modifier) {
     val prefs = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
     val advancedUse = prefs.getBoolean(SharedPreferencesKeys.ADVANCE_USE.key, false)
+    val selfInstallationCheck = prefs.getBoolean(SharedPreferencesKeys.SELF_INSTALLATION_INTEGRITY_CHECK.key, false)
 
-    val menuItems = buildList {
-        add(DrawerMenuItem("Configurações", Icons.Default.Settings))
+    // Seções de configurações: cada uma vira um item do menu lateral
+    val settingsSections = buildList {
+        add(DrawerMenuItem("Clima", Icons.Default.AcUnit))
+        add(DrawerMenuItem("Janelas e Teto", Icons.Default.Window))
+        add(DrawerMenuItem("Som", Icons.Default.VolumeUp))
+        add(DrawerMenuItem("Noite e Brilho", Icons.Default.DarkMode))
+        add(DrawerMenuItem("Conforto", Icons.Default.Weekend))
+        add(DrawerMenuItem("Ao Desligar", Icons.Default.PowerSettingsNew))
+        // Só aparece quando tem conteúdo (o item de bypass exige uso avançado)
+        if (advancedUse && !selfInstallationCheck) {
+            add(DrawerMenuItem("Avançado", Icons.Default.Security))
+        }
+    }
+    val tabItems = buildList {
         add(DrawerMenuItem("Telas", Icons.Default.SmartDisplay))
         add(DrawerMenuItem("Valores Atuais", Icons.Default.DeveloperMode))
         add(DrawerMenuItem("Instalar Apps", Icons.Default.ShoppingCart))
@@ -180,6 +200,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
             add(DrawerMenuItem("Frida Hooks", Icons.Default.Build))
         }
     }
+    val menuItems = settingsSections + tabItems
 
     var selectedItem by remember { mutableStateOf(0) }
 
@@ -199,8 +220,13 @@ fun MainScreen(modifier: Modifier = Modifier) {
             Column(
                 modifier = Modifier
                     .fillMaxHeight()
+                    .verticalScroll(rememberScrollState()) // 12+ itens: menu rolável
             ) {
                 menuItems.forEachIndexed { index, item ->
+                    // Divisor visual entre as seções de configurações e as abas
+                    if (index == settingsSections.size) {
+                        HorizontalDivider(color = Color(0xFF2A2F37), thickness = 1.dp)
+                    }
                     val animatedWidth by animateFloatAsState(
                         targetValue = if (selectedItem == index) 1f else 0f,
                         animationSpec = tween(
@@ -282,12 +308,14 @@ fun MainScreen(modifier: Modifier = Modifier) {
             // Content Area
             ContentArea {
                 when (selectedItem) {
-                    0 -> BasicSettingsTab()
-                    1 -> TelasTab()
-                    2 -> CurrentValuesTab()
-                    3 -> InstallAppsTab()
-                    4 -> InformacoesTab()
-                    5 -> FridaHooksTab()
+                    in settingsSections.indices -> BasicSettingsTab(settingsSections[selectedItem].title)
+                    else -> when (selectedItem - settingsSections.size) {
+                        0 -> TelasTab()
+                        1 -> CurrentValuesTab()
+                        2 -> InstallAppsTab()
+                        3 -> InformacoesTab()
+                        4 -> FridaHooksTab()
+                    }
                 }
             }
         }
@@ -344,7 +372,7 @@ private fun RowScope.StartupAcOptionButton(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BasicSettingsTab() {
+fun BasicSettingsTab(section: String) {
     val context = LocalContext.current
     val prefs = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
     var isAdvancedUse by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ADVANCE_USE.key, false)) }
@@ -391,10 +419,17 @@ fun BasicSettingsTab() {
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
 
-    val settingsList = mutableListOf<SettingItem>()
+    // Listas por seção (menu lateral): cada seção renderiza só os seus itens
+    val advancedList = mutableListOf<SettingItem>()
+    val windowsList = mutableListOf<SettingItem>()
+    val climateList = mutableListOf<SettingItem>()
+    val comfortList = mutableListOf<SettingItem>()
+    val powerOffList = mutableListOf<SettingItem>()
+    val nightList = mutableListOf<SettingItem>()
+    val soundList = mutableListOf<SettingItem>()
 
     if (isAdvancedUse && !selfInstallationCheck) {
-        settingsList.add(
+        advancedList.add(
             SettingItem(
                 title = "Bypass de Verificação",
                 description = SharedPreferencesKeys.BYPASS_SELF_INSTALLATION_INTEGRITY_CHECK.description,
@@ -407,7 +442,7 @@ fun BasicSettingsTab() {
         )
     }
 
-    settingsList.addAll(
+    windowsList.addAll(
         listOfNotNull(
             SettingItem(
                 title = "Fechar janela ao desligar o veículo",
@@ -485,7 +520,12 @@ fun BasicSettingsTab() {
                     prefs.edit { putFloat(SharedPreferencesKeys.SUNROOF_SPEED_THRESHOLD.key, newSpeed.toFloat()) }
                 },
                 sliderLabel = "Velocidade: ${closeSunroofSpeedThreshold.toInt()} km/h"
-            ),
+            )
+        )
+    )
+
+    climateList.addAll(
+        listOfNotNull(
             SettingItem(
                 title = "A/C no máximo ao ligar o carro",
                 description = SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.description,
@@ -635,7 +675,12 @@ fun BasicSettingsTab() {
                         }
                     }
                 } else null
-            ),
+            )
+        )
+    )
+
+    comfortList.addAll(
+        listOfNotNull(
             SettingItem(
                 title = "Manter desativado monitoramento de distrações",
                 description = "Desabilita alertas de distração durante a condução",
@@ -673,7 +718,12 @@ fun BasicSettingsTab() {
                     enableCustomMenu = it
                     prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_CUSTOM_MENU.key, it) }
                 }
-            ),
+            )
+        )
+    )
+
+    climateList.addAll(
+        listOfNotNull(
             SettingItem(
                 title = "Ligar ventilação do banco do motorisca com A/C ligado",
                 description = SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.description,
@@ -682,7 +732,12 @@ fun BasicSettingsTab() {
                     enableSeatVentilationOnAcOn = it
                     prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.key, it) }
                 }
-            ),
+            )
+        )
+    )
+
+    powerOffList.addAll(
+        listOfNotNull(
             SettingItem(
                 title = "Desligar bluetooth ao desligar",
                 description = SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.description,
@@ -700,7 +755,12 @@ fun BasicSettingsTab() {
                     disableHotspotOnPowerOff = it
                     prefs.edit { putBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.key, it) }
                 }
-            ),
+            )
+        )
+    )
+
+    comfortList.addAll(
+        listOfNotNull(
             SettingItem(
                 title = "Habilitar botões personalizados no volante",
                 description = SharedPreferencesKeys.ENABLE_STEERING_WHEEL_CUSTOM_BUTTONS.description,
@@ -826,7 +886,12 @@ fun BasicSettingsTab() {
                         }
                     }
                 } else null
-            ),
+            )
+        )
+    )
+
+    nightList.addAll(
+        listOfNotNull(
             SettingItem(
                 title = "Ajustar brilho automaticamente",
                 description = "Ajusta o brilho da tela automaticamente",
@@ -960,7 +1025,12 @@ fun BasicSettingsTab() {
                         }
                     }
                 } else null
-            ),
+            )
+        )
+    )
+
+    soundList.addAll(
+        listOfNotNull(
             SettingItem(
                 title = "Definir volume inicial",
                 description = SharedPreferencesKeys.SET_STARTUP_VOLUME.description,
@@ -976,7 +1046,12 @@ fun BasicSettingsTab() {
                     prefs.edit { putInt(SharedPreferencesKeys.STARTUP_VOLUME.key, newVolume) }
                 },
                 sliderLabel = "Volume: $volume"
-            ),
+            )
+        )
+    )
+
+    climateList.addAll(
+        listOfNotNull(
             SettingItem(
                 title = "Definir ar-condicionado ao ligar",
                 description = SharedPreferencesKeys.SET_STARTUP_AC.description,
@@ -1047,7 +1122,38 @@ fun BasicSettingsTab() {
         )
     )
 
-    TwoColumnSettingsLayout(settingsList = settingsList)
+    // Seção selecionada no menu lateral
+    val sectionList: List<SettingItem> = when (section) {
+        "Janelas e Teto" -> windowsList
+        "Som" -> soundList
+        "Noite e Brilho" -> nightList
+        "Conforto" -> comfortList
+        "Ao Desligar" -> powerOffList
+        "Avançado" -> advancedList
+        else -> climateList
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Text(
+            text = section,
+            color = AppColors.TextPrimary,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+        if (sectionList.isEmpty()) {
+            Text(
+                "Nenhuma opção nesta seção.",
+                color = AppColors.TextSecondary,
+                fontSize = 15.sp
+            )
+        } else {
+            TwoColumnSettingsLayout(
+                settingsList = sectionList,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
 
     if (showStartPicker) {
         LaunchedEffect(Unit) {
