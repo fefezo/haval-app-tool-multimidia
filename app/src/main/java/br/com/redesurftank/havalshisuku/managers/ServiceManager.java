@@ -200,6 +200,10 @@ public class ServiceManager {
     private final Map<String, String> previousAcState = new HashMap<>();
     private boolean isMaxAcActive = false;
     private Runnable maxAcTimeoutRunnable;
+    // v1.8: janela de confirmacao de 3s (ignicao liga com o sensor ainda estabilizando)
+    private Runnable maxAcConfirmRunnable;
+    // v1.8: histerese de falsos positivos nos primeiros 60s apos disparo
+    private long maxAcActivatedAt = 0L;
     private final Map<String, String> previousDryingState = new HashMap<>();
     private boolean isDryingModeActive = false;
     private int dryingModeRemainingSeconds = 0;
@@ -499,20 +503,26 @@ public class ServiceManager {
             }
             if (sharedPreferences.getBoolean(SharedPreferencesKeys.SET_STARTUP_AC.getKey(), false)) {
                 // Default HVAC state applied every time the car turns on: driver/passenger
-                // temperature, vent direction and circulation mode. POWER is intentionally
-                // NOT touched — the user asked for the state defaults, not to force the AC on.
+                // temperature, vent direction, fan speed and circulation mode. POWER is
+                // intentionally NOT touched — the user asked for the state defaults, not
+                // to force the AC on.
                 String startupAcTemp = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.getKey(), "22.0");
                 String startupAcBlower = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_BLOWER_MODE.getKey(), null);
                 String startupAcCycle = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.getKey(), "1"); // 1 = externa no H6
+                int startupAcFan = sharedPreferences.getInt(SharedPreferencesKeys.STARTUP_AC_FAN_SPEED.getKey(), 0);
                 updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), startupAcTemp);
                 updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), startupAcTemp);
                 updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
                 if (startupAcBlower != null && !startupAcBlower.isEmpty()) {
                     updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), startupAcBlower);
                 }
+                // v1.8: velocidade da ventilacao ao ligar (1-7); 0 = nao alterar
+                if (startupAcFan > 0) {
+                    updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), String.valueOf(startupAcFan));
+                }
                 updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), startupAcCycle);
                 updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0"); // AQS could force internal circulation back
-                Log.w(TAG, "Startup AC set: temp=" + startupAcTemp + " blower=" + startupAcBlower + " cycle=" + startupAcCycle);
+                Log.w(TAG, "Startup AC set: temp=" + startupAcTemp + " blower=" + startupAcBlower + " fan=" + startupAcFan + " cycle=" + startupAcCycle);
             }
             boolean isForceDisableMonitoring = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_MONITORING.getKey(), false);
             if (isForceDisableMonitoring) {
@@ -999,6 +1009,8 @@ public class ServiceManager {
                 }
             } else if (key.equals(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue())) {
                 if ((value.equals("-1") || value.equals("0"))) {
+                    // v1.8: carro desligou — cancela qualquer confirmacao de Max AC pendente
+                    cancelPendingMaxAcConfirmation();
                     boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
                     boolean currentBluetoothState = currentBluetoothState();
                     if (currentBluetoothState && disableBluetoothOnPowerOff) {
@@ -1166,6 +1178,9 @@ public class ServiceManager {
         }
         isMaxAcActive = false;
         previousAcState.clear();
+        // v1.8: zera a janela de histerese e cancela confirmacao pendente ao desligar
+        maxAcActivatedAt = 0L;
+        cancelPendingMaxAcConfirmation();
         if (maxAcTimeoutRunnable != null) {
             backgroundHandler.removeCallbacks(maxAcTimeoutRunnable);
             maxAcTimeoutRunnable = null;
@@ -1309,72 +1324,128 @@ public class ServiceManager {
         return isMaxAcActive;
     }
 
+    // v1.8: nao dispara mais direto ao ligar a ignicao — aguarda 3s e confirma a
+    // leitura (o sensor pode estar estabilizando), com clamp de plausibilidade.
     private void enableMaxAcOn() {
         try {
-            String tempStr = getUpdatedData(CarConstants.CAR_BASIC_INSIDE_TEMP.getValue());
-            if (tempStr == null) return;
-            float currentTemp = Float.parseFloat(tempStr);
-            float threshold = sharedPreferences.getFloat(SharedPreferencesKeys.MAX_AC_ON_UNLOCK_THRESHOLD.getKey(), 35.0f);
-
-            if (currentTemp >= threshold && !isMaxAcActive) {
-                cancelDryingMode();
-                String prevPower = getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue());
-                String prevEnabled = getUpdatedData(CarConstants.CAR_HVAC_AC_ENABLE.getValue());
-                String prevFan = getUpdatedData(CarConstants.CAR_HVAC_FAN_SPEED.getValue());
-                String prevDriverTemp = getUpdatedData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue());
-                String prevPassTemp = getUpdatedData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue());
-                String prevAuto = getUpdatedData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue());
-                String prevAnion = getUpdatedData(CarConstants.CAR_HVAC_ANION_ENABLE.getValue());
-                String prevAQS = getUpdatedData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue());
-                String prevSync = getUpdatedData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue());
-                String prevSeatVent = getUpdatedData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue());
-                String prevBlower = getUpdatedData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue());
-
-                previousAcState.put(CarConstants.CAR_HVAC_POWER_MODE.getValue(), prevPower);
-                previousAcState.put(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), prevEnabled);
-                previousAcState.put(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), prevFan);
-                previousAcState.put(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), prevDriverTemp);
-                previousAcState.put(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), prevPassTemp);
-                previousAcState.put(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), prevAuto);
-                previousAcState.put(CarConstants.CAR_HVAC_ANION_ENABLE.getValue(), prevAnion);
-                previousAcState.put(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), prevAQS);
-                previousAcState.put(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), prevSync);
-                previousAcState.put(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), prevSeatVent);
-                previousAcState.put(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), prevBlower);
-
-                updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1");
-                updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), "0");
-                updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), "7");
-                updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), "16.0");
-                updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), "16.0");
-                updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
-                updateData(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), "1");
-                // Opções do Max AC: ventilação do banco (motorista) e direção do ar.
-                if (sharedPreferences.getBoolean(SharedPreferencesKeys.MAX_AC_SEAT_VENTILATION.getKey(), false)) {
-                    updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "3");
-                }
-                String maxAcBlower = sharedPreferences.getString(SharedPreferencesKeys.MAX_AC_BLOWER_MODE.getKey(), "");
-                if (maxAcBlower != null && !maxAcBlower.isEmpty()) {
-                    updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), maxAcBlower);
-                }
-
-                isMaxAcActive = true;
-                
-                int timeoutMinutes = sharedPreferences.getInt(SharedPreferencesKeys.MAX_AC_TIMEOUT.getKey(), 0);
-                 if (timeoutMinutes > 0) {
-                    if (maxAcTimeoutRunnable != null) {
-                        backgroundHandler.removeCallbacks(maxAcTimeoutRunnable);
-                    }
-                    maxAcTimeoutRunnable = () -> {
-                         Log.w(TAG, "Max AC timeout reached, aborting");
-                         cancelMaxAcMode();
-                    };
-                    backgroundHandler.postDelayed(maxAcTimeoutRunnable, timeoutMinutes * 60 * 1000L);
-                    Log.w(TAG, "Max AC timeout scheduled for " + timeoutMinutes + " minutes");
-                }
-                
-                Log.w(TAG, "Max AC activated power on and high temp: " + currentTemp);
+            if (isMaxAcActive) return;
+            if (maxAcConfirmRunnable != null) {
+                backgroundHandler.removeCallbacks(maxAcConfirmRunnable);
             }
+            maxAcConfirmRunnable = () -> {
+                maxAcConfirmRunnable = null;
+                confirmAndActivateMaxAc();
+            };
+            backgroundHandler.postDelayed(maxAcConfirmRunnable, 3000);
+            Log.d(TAG, "Max AC: confirmacao de 3s agendada apos ready-state on");
+        } catch (Exception e) {
+            Log.e(TAG, "Error scheduling Max AC confirmation", e);
+        }
+    }
+
+    private void cancelPendingMaxAcConfirmation() {
+        if (maxAcConfirmRunnable != null) {
+            backgroundHandler.removeCallbacks(maxAcConfirmRunnable);
+            maxAcConfirmRunnable = null;
+            Log.d(TAG, "Max AC: confirmacao pendente cancelada (carro desligou)");
+        }
+    }
+
+    private void confirmAndActivateMaxAc() {
+        try {
+            if (isMaxAcActive) return;
+            String tempStr = getUpdatedData(CarConstants.CAR_BASIC_INSIDE_TEMP.getValue());
+            if (tempStr == null) {
+                Log.w(TAG, "Max AC: temperatura indisponivel na confirmacao, nao dispara");
+                return;
+            }
+            float currentTemp;
+            try {
+                currentTemp = Float.parseFloat(tempStr);
+            } catch (NumberFormatException e) {
+                Log.w(TAG, "Max AC: leitura de temperatura invalida (\"" + tempStr + "\"), nao dispara");
+                return;
+            }
+            // Clamp de plausibilidade: fora de 10..70°C a leitura nao e confiavel
+            // (sensor inicializando / dados sujos) — nao dispara.
+            if (currentTemp < 10f || currentTemp > 70f) {
+                Log.w(TAG, "Max AC: temperatura fora do intervalo plausivel (" + currentTemp + "°C), nao dispara");
+                return;
+            }
+            float threshold = sharedPreferences.getFloat(SharedPreferencesKeys.MAX_AC_ON_UNLOCK_THRESHOLD.getKey(), 35.0f);
+            if (currentTemp < threshold) {
+                Log.d(TAG, "Max AC: temperatura " + currentTemp + "°C abaixo do trigger " + threshold + "°C apos confirmacao, nao dispara");
+                return;
+            }
+            Log.w(TAG, "Max AC: trigger confirmado (" + currentTemp + "°C >= " + threshold + "°C), ativando");
+            activateMaxAc();
+        } catch (Exception e) {
+            Log.e(TAG, "Error in Max AC confirmation logic", e);
+        }
+    }
+
+    private void activateMaxAc() {
+        try {
+            if (isMaxAcActive) return;
+            cancelDryingMode();
+            String prevPower = getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue());
+            String prevEnabled = getUpdatedData(CarConstants.CAR_HVAC_AC_ENABLE.getValue());
+            String prevFan = getUpdatedData(CarConstants.CAR_HVAC_FAN_SPEED.getValue());
+            String prevDriverTemp = getUpdatedData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue());
+            String prevPassTemp = getUpdatedData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue());
+            String prevAuto = getUpdatedData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue());
+            String prevAnion = getUpdatedData(CarConstants.CAR_HVAC_ANION_ENABLE.getValue());
+            String prevAQS = getUpdatedData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue());
+            String prevSync = getUpdatedData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue());
+            String prevSeatVent = getUpdatedData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue());
+            String prevBlower = getUpdatedData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue());
+
+            previousAcState.put(CarConstants.CAR_HVAC_POWER_MODE.getValue(), prevPower);
+            previousAcState.put(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), prevEnabled);
+            previousAcState.put(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), prevFan);
+            previousAcState.put(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), prevDriverTemp);
+            previousAcState.put(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), prevPassTemp);
+            previousAcState.put(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), prevAuto);
+            previousAcState.put(CarConstants.CAR_HVAC_ANION_ENABLE.getValue(), prevAnion);
+            previousAcState.put(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), prevAQS);
+            previousAcState.put(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), prevSync);
+            previousAcState.put(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), prevSeatVent);
+            previousAcState.put(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), prevBlower);
+
+            updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1");
+            updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), "0");
+            updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), "7");
+            updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), "16.0");
+            updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), "16.0");
+            updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
+            updateData(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), "1");
+            // Opções do Max AC: ventilação do banco (motorista) e direção do ar.
+            if (sharedPreferences.getBoolean(SharedPreferencesKeys.MAX_AC_SEAT_VENTILATION.getKey(), false)) {
+                updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "3");
+            }
+            String maxAcBlower = sharedPreferences.getString(SharedPreferencesKeys.MAX_AC_BLOWER_MODE.getKey(), "");
+            if (maxAcBlower != null && !maxAcBlower.isEmpty()) {
+                updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), maxAcBlower);
+            }
+
+            isMaxAcActive = true;
+            // v1.8: marca o momento do disparo para a janela de histerese
+            maxAcActivatedAt = System.currentTimeMillis();
+
+            int timeoutMinutes = sharedPreferences.getInt(SharedPreferencesKeys.MAX_AC_TIMEOUT.getKey(), 0);
+            if (timeoutMinutes > 0) {
+                if (maxAcTimeoutRunnable != null) {
+                    backgroundHandler.removeCallbacks(maxAcTimeoutRunnable);
+                }
+                maxAcTimeoutRunnable = () -> {
+                    Log.w(TAG, "Max AC timeout reached, aborting");
+                    cancelMaxAcMode();
+                };
+                backgroundHandler.postDelayed(maxAcTimeoutRunnable, timeoutMinutes * 60 * 1000L);
+                Log.w(TAG, "Max AC timeout scheduled for " + timeoutMinutes + " minutes");
+            }
+
+            Log.w(TAG, "Max AC activated (power on, high temp)");
         } catch (Exception e) {
             Log.e(TAG, "Error in Max AC Activation logic", e);
         }
@@ -1390,9 +1461,21 @@ public class ServiceManager {
             float smoothingRange = 2.0f;
             float startSmoothingTemp = targetTemp + smoothingRange;
 
+            // v1.8: janela de histerese de 60s — se o disparo foi espurio (leitura de
+            // boot acima do trigger que depois se estabilizou), desliga ao cair abaixo
+            // do trigger em vez de esperar chegar na temperatura alvo.
+            float threshold = sharedPreferences.getFloat(SharedPreferencesKeys.MAX_AC_ON_UNLOCK_THRESHOLD.getKey(), 35.0f);
+            boolean withinHysteresisWindow = maxAcActivatedAt > 0L
+                    && (System.currentTimeMillis() - maxAcActivatedAt) < 60_000L;
+            float earlyCancelTemp = Math.max(targetTemp, threshold - 1f);
+
             if (currentTemp <= targetTemp) {
                 cancelMaxAcMode();
                 Log.w(TAG, "Max AC deactivated, temperature reached target: " + targetTemp);
+            } else if (withinHysteresisWindow && currentTemp <= earlyCancelTemp) {
+                cancelMaxAcMode();
+                Log.w(TAG, "Max AC deactivated within 60s hysteresis window (falso positivo), temp "
+                        + currentTemp + "°C abaixo do trigger " + threshold + "°C");
             } else if (currentTemp < startSmoothingTemp) {
                 float factor = (currentTemp - targetTemp) / smoothingRange;
                 factor = Math.max(0f, Math.min(1f, factor));

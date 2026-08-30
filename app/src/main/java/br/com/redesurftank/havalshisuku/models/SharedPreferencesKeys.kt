@@ -15,6 +15,7 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     STARTUP_AC_TEMPERATURE("startupAcTemperature", "Temperatura do ar-condicionado ao ligar o veículo"),
     STARTUP_AC_BLOWER_MODE("startupAcBlowerMode", "Direção do ar ao ligar o veículo"),
     STARTUP_AC_CYCLE_MODE("startupAcCycleMode", "Circulação do ar ao ligar o veículo"),
+    STARTUP_AC_FAN_SPEED("startupAcFanSpeed", "Velocidade da ventilação ao ligar o veículo (0 = não alterar)"),
     SPEED_THRESHOLD("speedThreshold", "Velocidade limite para fechar janelas"),
     SUNROOF_SPEED_THRESHOLD("sunroofSpeedThreshold", "Velocidade limite para fechar teto solar"),
     NIGHT_START_HOUR("nightStartHour", "Hora de início da noite"),

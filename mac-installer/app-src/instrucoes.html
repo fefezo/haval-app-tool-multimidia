@@ -177,6 +177,15 @@ sozinho (BootReceiver), conecta no telnet local (localhost:23) e sobe o Shizuku.
 </p>
 
 <h2>Atualizações futuras (quando você tiver uma ideia nova)</h2>
+<div class="box ok">
+  <strong>Nova (v1.4+): atualização remota, sem Mac.</strong> O app busca releases do fork
+  <code>fefezo/haval-app-tool-multimidia</code> no GitHub. Com o carro com internet (eSIM ou
+  WiFi de casa/celular): app → <b>Buscar Atualizações</b> → confirma → o APK é baixado, o
+  SHA-256 é verificado e o instalador padrão do Android abre. O APK da release precisa ter a
+  mesma assinatura de depuração, e o corpo da release deve conter a linha
+  <code>sha256: &lt;hash&gt;</code>.
+</div>
+<p>Fluxo antigo (Mac no carro) — só se o carro estiver sem internet:</p>
 <ol>
   <li>Gere o novo APK no Windows (<code>.\build.ps1</code>) e republique o zip no Drive
       (mesmo fluxo deste documento), <b>ou</b> apenas copie o novo APK para o Mac e:</li>
@@ -281,7 +290,7 @@ sozinho (BootReceiver), conecta no telnet local (localhost:23) e sobe o Shizuku.
       o telnet root do app na inicialização.</li>
 </ul>
 
-<p class="small" style="margin-top:24px">Haval Installer v1.2 · gerado em 2026-08-26 · script clean-room
+<p class="small" style="margin-top:24px">Haval Installer v1.4 · gerado em 2026-08-26 · script clean-room
 <a style="color:#5b6b7b" href="#">mac-installer/system_server.js</a></p>
 
 </body>

@@ -395,6 +395,7 @@ fun BasicSettingsTab(section: String) {
     var startupAcBlower by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STARTUP_AC_BLOWER_MODE.key, "") ?: "") }
     // H6: cycle_mode 1 = ar externo, 0 = interna (invertido vs padrão AOSP)
     var startupAcCycle by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.key, "1") ?: "1") }
+    var startupAcFan by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.STARTUP_AC_FAN_SPEED.key, 0)) }
     var closeWindowsOnSpeed by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLOSE_WINDOWS_ON_SPEED.key, false)) }
     var closeSunroofOnSpeed by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLOSE_SUNROOF_ON_SPEED.key, false)) }
     var speedThreshold by remember { mutableFloatStateOf(prefs.getFloat(SharedPreferencesKeys.SPEED_THRESHOLD.key, 15f)) }
@@ -1106,6 +1107,24 @@ fun BasicSettingsTab(section: String) {
                                     onClick = {
                                         startupAcBlower = value
                                         prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_BLOWER_MODE.key, value) }
+                                    }
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Velocidade da ventilação", color = Color.White, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    (0..7).chunked(4).forEach { rowFan ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            rowFan.forEach { level ->
+                                StartupAcOptionButton(
+                                    label = if (level == 0) "Não mudar" else "$level",
+                                    selected = startupAcFan == level,
+                                    onClick = {
+                                        startupAcFan = level
+                                        prefs.edit { putInt(SharedPreferencesKeys.STARTUP_AC_FAN_SPEED.key, level) }
                                     }
                                 )
                             }
