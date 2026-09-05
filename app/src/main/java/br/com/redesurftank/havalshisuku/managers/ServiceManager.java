@@ -210,6 +210,11 @@ public class ServiceManager {
     private Runnable dryingModeTimeoutRunnable;
     private Runnable dryingModeTickRunnable;
     private static final int DRYING_MODE_DURATION_SECONDS = 120;
+    // v1.9: reaplica os defaults de startup apos o modulo HVAC terminar de acordar
+    private Runnable startupDefaultsRunnable;
+    // v1.9: true = proximo ready-state ON deve aplicar os defaults (processo novo ou
+    // apos um OFF real). Evita reaplicar no meio da viagem se o valor oscilar.
+    private boolean applyStartupDefaultsOnNextReadyOn = true;
 
 
     private ServiceManager() {
@@ -494,36 +499,10 @@ public class ServiceManager {
                 }
             }, wifiFilter);
             dispatchAllData();
-            if (sharedPreferences.getBoolean(SharedPreferencesKeys.SET_STARTUP_VOLUME.getKey(), false)) {
-                int startupVolume = sharedPreferences.getInt(SharedPreferencesKeys.STARTUP_VOLUME.getKey(), -1);
-                if (startupVolume != -1) {
-                    controlService.request("cmd.common.request.set", CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(), String.valueOf(startupVolume));
-                    Log.w(TAG, "Startup volume set to: " + startupVolume);
-                }
-            }
-            if (sharedPreferences.getBoolean(SharedPreferencesKeys.SET_STARTUP_AC.getKey(), false)) {
-                // Default HVAC state applied every time the car turns on: driver/passenger
-                // temperature, vent direction, fan speed and circulation mode. POWER is
-                // intentionally NOT touched — the user asked for the state defaults, not
-                // to force the AC on.
-                String startupAcTemp = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.getKey(), "22.0");
-                String startupAcBlower = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_BLOWER_MODE.getKey(), null);
-                String startupAcCycle = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.getKey(), "1"); // 1 = externa no H6
-                int startupAcFan = sharedPreferences.getInt(SharedPreferencesKeys.STARTUP_AC_FAN_SPEED.getKey(), 0);
-                updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), startupAcTemp);
-                updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), startupAcTemp);
-                updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
-                if (startupAcBlower != null && !startupAcBlower.isEmpty()) {
-                    updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), startupAcBlower);
-                }
-                // v1.8: velocidade da ventilacao ao ligar (1-7); 0 = nao alterar
-                if (startupAcFan > 0) {
-                    updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), String.valueOf(startupAcFan));
-                }
-                updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), startupAcCycle);
-                updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0"); // AQS could force internal circulation back
-                Log.w(TAG, "Startup AC set: temp=" + startupAcTemp + " blower=" + startupAcBlower + " fan=" + startupAcFan + " cycle=" + startupAcCycle);
-            }
+            // v1.9: volume e AC padrao foram movidos para o handler de ready-state ON
+            // (applyStartupDefaults) — o init so roda quando o servico sobe, entao com a
+            // central viva entre ignicoes o padrao nunca era reaplicado. O dispatchAllData
+            // acima dispara o ramo ON quando o servico inicia com o carro ja ligado.
             boolean isForceDisableMonitoring = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_MONITORING.getKey(), false);
             if (isForceDisableMonitoring) {
                 setMonitoringEnabled(false);
@@ -1011,6 +990,21 @@ public class ServiceManager {
                 if ((value.equals("-1") || value.equals("0"))) {
                     // v1.8: carro desligou — cancela qualquer confirmacao de Max AC pendente
                     cancelPendingMaxAcConfirmation();
+                    // v1.9: automacoes de HVAC encerram no desligar. Restaurar agora, com o
+                    // modulo ainda acordado, evita o residual no proximo start (ex.: secagem
+                    // interrompida deixava o AC em 32°C ao religar — o restore so rodava com
+                    // o carro desligado e o comando se perdia).
+                    if (isDryingModeActive) {
+                        cancelDryingMode();
+                    }
+                    if (isMaxAcActive) {
+                        cancelMaxAcMode();
+                    }
+                    if (startupDefaultsRunnable != null) {
+                        backgroundHandler.removeCallbacks(startupDefaultsRunnable);
+                        startupDefaultsRunnable = null;
+                    }
+                    applyStartupDefaultsOnNextReadyOn = true;
                     boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
                     boolean currentBluetoothState = currentBluetoothState();
                     if (currentBluetoothState && disableBluetoothOnPowerOff) {
@@ -1027,6 +1021,13 @@ public class ServiceManager {
                     if (disableBluetoothOnPowerOff && bluetoothStateOnPowerOff && !currentBluetoothState()) {
                         enableBluetooth();
                     }
+                    // v1.9: defaults de startup agora rodam em CADA ciclo de ignicao (nao
+                    // so quando o servico inicia). Aplica imediato e reaplica em 4s — o
+                    // modulo HVAC pode demorar a acordar e engolir o primeiro envio.
+                    if (applyStartupDefaultsOnNextReadyOn) {
+                        applyStartupDefaultsOnNextReadyOn = false;
+                        scheduleStartupDefaults();
+                    }
                     if (sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), true)) {
                         if (!isMaxAcActive) enableMaxAcOn();
                     }
@@ -1041,6 +1042,67 @@ public class ServiceManager {
         } catch (Exception e) {
             Log.e(TAG, "Error in OnDataChanged", e);
         }
+    }
+
+    // v1.9: defaults de volume/AC a cada ready-state ON. Antes viviam no initializeServices
+    // e so rodavam quando o servico subia — com a central viva entre ignicoes, o padrao
+    // nunca era reaplicado (ex.: secagem interrompida deixava o HVAC em 32°C ao religar).
+    private void scheduleStartupDefaults() {
+        try {
+            applyStartupDefaults();
+            if (startupDefaultsRunnable != null) {
+                backgroundHandler.removeCallbacks(startupDefaultsRunnable);
+            }
+            // Reaplica depois que o modulo HVAC termina de acordar (o primeiro envio,
+            // ainda durante o boot do modulo, pode se perder).
+            startupDefaultsRunnable = this::applyStartupDefaults;
+            backgroundHandler.postDelayed(startupDefaultsRunnable, 4000L);
+        } catch (Exception e) {
+            Log.e(TAG, "Error scheduling startup defaults", e);
+        }
+    }
+
+    private void applyStartupDefaults() {
+        startupDefaultsRunnable = null;
+        if (sharedPreferences.getBoolean(SharedPreferencesKeys.SET_STARTUP_VOLUME.getKey(), false)) {
+            int startupVolume = sharedPreferences.getInt(SharedPreferencesKeys.STARTUP_VOLUME.getKey(), -1);
+            if (startupVolume != -1) {
+                try {
+                    controlService.request("cmd.common.request.set", CarConstants.SYS_SETTINGS_AUDIO_MEDIA_VOLUME.getValue(), String.valueOf(startupVolume));
+                    Log.w(TAG, "Startup volume set to: " + startupVolume);
+                } catch (Exception e) {
+                    Log.e(TAG, "Error setting startup volume", e);
+                }
+            }
+        }
+        if (!sharedPreferences.getBoolean(SharedPreferencesKeys.SET_STARTUP_AC.getKey(), false)) return;
+        // Max AC em andamento domina o HVAC — nao briga com ele; o smoothing do Max AC
+        // restaura o snapshot do usuario ao terminar.
+        if (isMaxAcActive) {
+            Log.d(TAG, "Startup AC skipped, Max AC active");
+            return;
+        }
+        // Default HVAC state applied every time the car turns on: driver/passenger
+        // temperature, vent direction, fan speed and circulation mode. POWER is
+        // intentionally NOT touched — the user asked for the state defaults, not
+        // to force the AC on.
+        String startupAcTemp = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.getKey(), "22.0");
+        String startupAcBlower = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_BLOWER_MODE.getKey(), null);
+        String startupAcCycle = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.getKey(), "1"); // 1 = externa no H6
+        int startupAcFan = sharedPreferences.getInt(SharedPreferencesKeys.STARTUP_AC_FAN_SPEED.getKey(), 0);
+        updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), startupAcTemp);
+        updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), startupAcTemp);
+        updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
+        if (startupAcBlower != null && !startupAcBlower.isEmpty()) {
+            updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), startupAcBlower);
+        }
+        // v1.8: velocidade da ventilacao ao ligar (1-7); 0 = nao alterar
+        if (startupAcFan > 0) {
+            updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), String.valueOf(startupAcFan));
+        }
+        updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), startupAcCycle);
+        updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0"); // AQS could force internal circulation back
+        Log.w(TAG, "Startup AC set: temp=" + startupAcTemp + " blower=" + startupAcBlower + " fan=" + startupAcFan + " cycle=" + startupAcCycle);
     }
 
     public boolean closeAllWindow() {
