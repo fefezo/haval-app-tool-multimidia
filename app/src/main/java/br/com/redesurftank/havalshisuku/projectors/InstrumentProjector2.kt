@@ -239,6 +239,11 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
                             SteeringWheelAcControlType.CIRCULATION -> {
                                 evaluateJsIfReady(webView, "focus('recycle')")
                             }
+
+                            // v2.0: zona "Modo padrão" na tela de A/C (fica ao lado da circulação)
+                            SteeringWheelAcControlType.DEFAULT_AC -> {
+                                evaluateJsIfReady(webView, "focus('default')")
+                            }
                         }
                     }
 

@@ -61,6 +61,7 @@ import androidx.compose.material.icons.filled.SmartDisplay
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Weekend
 import androidx.compose.material.icons.filled.Window
+import android.widget.Toast
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -370,6 +371,32 @@ private fun RowScope.StartupAcOptionButton(
     }
 }
 
+// Slider de temperatura em 0,5 °C (valor do slider = °C × 2, 32..64 = 16..32 °C),
+// mesmo padrão visual do restante do app. Usado no card do modo padrão do A/C.
+@Composable
+private fun AcTempSlider(
+    label: String,
+    sliderValue: Int,
+    onValueChange: (Int) -> Unit
+) {
+    Text(label, color = Color.White, fontSize = 15.sp)
+    Spacer(modifier = Modifier.height(4.dp))
+    Slider(
+        value = sliderValue.toFloat(),
+        onValueChange = { onValueChange(it.toInt()) },
+        valueRange = 32f..64f,
+        steps = 31,
+        colors = SliderDefaults.colors(
+            thumbColor = AppColors.Primary,
+            activeTrackColor = AppColors.Primary,
+            inactiveTrackColor = Color(0xFF2C3139),
+            activeTickColor = Color.Transparent,
+            inactiveTickColor = Color.Transparent
+        )
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BasicSettingsTab(section: String) {
@@ -396,6 +423,14 @@ fun BasicSettingsTab(section: String) {
     // H6: cycle_mode 1 = ar externo, 0 = interna (invertido vs padrão AOSP)
     var startupAcCycle by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.key, "1") ?: "1") }
     var startupAcFan by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.STARTUP_AC_FAN_SPEED.key, 0)) }
+    // Perfil "Modo padrão do A/C" (v2.0): temperaturas independentes por lado,
+    // ventilação, circulação e direção do ar. Mesmo armazenamento do AC de partida
+    // (0,5 °C por ponto de slider, string "22.0").
+    var defaultAcDriverTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_DRIVER.key, "22.0")?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
+    var defaultAcPassTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_PASSENGER.key, "22.0")?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
+    var defaultAcFan by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.DEFAULT_AC_FAN_SPEED.key, 3).coerceIn(1, 7)) }
+    var defaultAcCycle by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.DEFAULT_AC_CYCLE_MODE.key, "1") ?: "1") }
+    var defaultAcBlower by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.DEFAULT_AC_BLOWER_MODE.key, "") ?: "") }
     var closeWindowsOnSpeed by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLOSE_WINDOWS_ON_SPEED.key, false)) }
     var closeSunroofOnSpeed by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLOSE_SUNROOF_ON_SPEED.key, false)) }
     var speedThreshold by remember { mutableFloatStateOf(prefs.getFloat(SharedPreferencesKeys.SPEED_THRESHOLD.key, 15f)) }
@@ -1133,6 +1168,112 @@ fun BasicSettingsTab(section: String) {
                     }
                     Text(
                         "Direção: valores do protocolo GWM — confira no painel qual combinação aparece e ajuste se necessário.",
+                        color = AppColors.TextSecondary,
+                        fontSize = 12.sp
+                    )
+                }
+            ),
+            SettingItem(
+                title = "Modo padrão do A/C",
+                description = "Perfil com temperatura do motorista e do passageiro independentes, velocidade da ventilação, circulação e direção do ar. Ativa o A/C com essas configurações de qualquer estado atual — pelo botão abaixo ou pela tela de A/C do cluster, na zona ao lado da circulação interna (focar e pressionar cima/baixo).",
+                checked = true,
+                onCheckedChange = {},
+                hideSwitch = true,
+                customContent = {
+                    AcTempSlider(
+                        label = "Temperatura — motorista: %.1f°C".format(defaultAcDriverTemp / 2.0),
+                        sliderValue = defaultAcDriverTemp,
+                        onValueChange = { newTemp ->
+                            defaultAcDriverTemp = newTemp
+                            prefs.edit { putString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_DRIVER.key, "%.1f".format(newTemp / 2.0)) }
+                        }
+                    )
+                    AcTempSlider(
+                        label = "Temperatura — passageiro: %.1f°C".format(defaultAcPassTemp / 2.0),
+                        sliderValue = defaultAcPassTemp,
+                        onValueChange = { newTemp ->
+                            defaultAcPassTemp = newTemp
+                            prefs.edit { putString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_PASSENGER.key, "%.1f".format(newTemp / 2.0)) }
+                        }
+                    )
+                    Text(
+                        "Circulação: ${if (defaultAcCycle == "1") "Externa (ar de fora)" else "Interna"}",
+                        color = Color.White,
+                        fontSize = 15.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StartupAcOptionButton(
+                            label = "Externa",
+                            selected = defaultAcCycle == "1",
+                            onClick = {
+                                defaultAcCycle = "1"
+                                prefs.edit { putString(SharedPreferencesKeys.DEFAULT_AC_CYCLE_MODE.key, "1") }
+                            }
+                        )
+                        StartupAcOptionButton(
+                            label = "Interna",
+                            selected = defaultAcCycle != "1",
+                            onClick = {
+                                defaultAcCycle = "0"
+                                prefs.edit { putString(SharedPreferencesKeys.DEFAULT_AC_CYCLE_MODE.key, "0") }
+                            }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Direção do ar", color = Color.White, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    startupAcBlowerOptions.chunked(4).forEach { rowOptions ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            rowOptions.forEach { (value, label) ->
+                                StartupAcOptionButton(
+                                    label = label,
+                                    selected = defaultAcBlower == value,
+                                    onClick = {
+                                        defaultAcBlower = value
+                                        prefs.edit { putString(SharedPreferencesKeys.DEFAULT_AC_BLOWER_MODE.key, value) }
+                                    }
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Velocidade da ventilação", color = Color.White, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    (1..7).chunked(4).forEach { rowFan ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            rowFan.forEach { level ->
+                                StartupAcOptionButton(
+                                    label = "$level",
+                                    selected = defaultAcFan == level,
+                                    onClick = {
+                                        defaultAcFan = level
+                                        prefs.edit { putInt(SharedPreferencesKeys.DEFAULT_AC_FAN_SPEED.key, level) }
+                                    }
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            ServiceManager.getInstance().applyDefaultAcMode()
+                            Toast.makeText(context, "Modo padrão do A/C ativado", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth().height(40.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AppColors.Primary,
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Ativar modo padrão agora", fontSize = 14.sp)
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Aplicado por cima do estado atual: liga o A/C, encerra secagem e MAX AUTO e restaura estas configurações.",
                         color = AppColors.TextSecondary,
                         fontSize = 12.sp
                     )

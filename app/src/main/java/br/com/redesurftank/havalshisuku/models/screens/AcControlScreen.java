@@ -24,7 +24,10 @@ public class AcControlScreen implements Screen {
     private static final SteeringWheelAcControlType[] STEERING_WHEEL_AC_CYCLE = {
             SteeringWheelAcControlType.FAN_SPEED,
             SteeringWheelAcControlType.TEMPERATURE,
-            SteeringWheelAcControlType.CIRCULATION
+            SteeringWheelAcControlType.CIRCULATION,
+            // v2.0: "Modo padrão" fica logo depois da circulação interna, como pedido —
+            // focar na zona e pressionar para cima/para baixo aplica o perfil salvo no app.
+            SteeringWheelAcControlType.DEFAULT_AC
     };
 
     @Override
@@ -108,6 +111,13 @@ public class AcControlScreen implements Screen {
                             serviceManager.cancelMaxAcMode();
                             serviceManager.cancelDryingMode();
                         }
+                    }
+                    break;
+                    // v2.0: zona "Modo padrão" ao lado da circulação. Qualquer pressão
+                    // (cima ou baixo) aplica o perfil configurado no app — repetir é
+                    // inofensivo, o perfil é reaplicado por cima do estado atual.
+                    case DEFAULT_AC: {
+                        serviceManager.applyDefaultAcMode();
                     }
                     break;
                 }

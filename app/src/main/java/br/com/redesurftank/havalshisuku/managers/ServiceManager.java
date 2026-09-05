@@ -1105,6 +1105,47 @@ public class ServiceManager {
         Log.w(TAG, "Startup AC set: temp=" + startupAcTemp + " blower=" + startupAcBlower + " fan=" + startupAcFan + " cycle=" + startupAcCycle);
     }
 
+    // "Modo padrão do A/C" (v2.0): aplica o perfil salvo no app — temperaturas dos
+    // dois lados de forma independente, ventilação, circulação e direção do ar —
+    // por cima de qualquer estado atual do HVAC, ligando o ar no processo.
+    // Acionado pelo botão do app ou pela zona "Modo padrão" da tela de A/C do
+    // cluster (logo após a circulação no ciclo de ENTER).
+    public void applyDefaultAcMode() {
+        try {
+            // Automations (Max AC / secagem) tomam conta do HVAC: derruba antes de
+            // aplicar o perfil. Os cancelamentos restauram o snapshot via updateData
+            // (fila assíncrona FIFO), então saem antes dos comandos do perfil abaixo.
+            cancelMaxAcMode();
+            cancelDryingMode();
+
+            String driverTemp = sharedPreferences.getString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_DRIVER.getKey(), "22.0");
+            String passTemp = sharedPreferences.getString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_PASSENGER.getKey(), "22.0");
+            int fan = sharedPreferences.getInt(SharedPreferencesKeys.DEFAULT_AC_FAN_SPEED.getKey(), 3);
+            String cycle = sharedPreferences.getString(SharedPreferencesKeys.DEFAULT_AC_CYCLE_MODE.getKey(), "1"); // H6: 1 = externa
+            String blower = sharedPreferences.getString(SharedPreferencesKeys.DEFAULT_AC_BLOWER_MODE.getKey(), "");
+
+            updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1"); // perfil = AC ligado, independente do estado anterior
+            updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), "0"); // velocidade explícita, sem AUTO interferir
+            updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), driverTemp);
+            updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), passTemp);
+            // Sync só quando os dois lados pedem a mesma temperatura; senão o painel do
+            // carro igualaria o lado do passageiro ao do motorista ao apertar SYNC.
+            updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), driverTemp.equals(passTemp) ? "1" : "0");
+            if (fan > 0 && fan <= 7) {
+                updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), String.valueOf(fan));
+            }
+            updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), cycle);
+            if (blower != null && !blower.isEmpty()) {
+                updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), blower);
+            }
+            updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0"); // AQS could force internal circulation back
+            Log.w(TAG, "Modo padrão AC aplicado: driver=" + driverTemp + " pass=" + passTemp
+                    + " fan=" + fan + " cycle=" + cycle + " blower=" + blower);
+        } catch (Exception e) {
+            Log.e(TAG, "Error applying default AC mode", e);
+        }
+    }
+
     public boolean closeAllWindow() {
         try {
             int[] windowsStatus = vehicle.getWindowsStatus(0);

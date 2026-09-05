@@ -412,6 +412,26 @@ button {
   z-index: 3;
 }
 
+/* v2.0: zona "Modo padrão" — mesma coluna do ícone de circulação (100px), logo
+   abaixo dele. Espaço livre: a zona do fan termina em ~x281, o arco de
+   temperatura inferior começa em ~y288 e os badges de secagem/MAX AUTO
+   (centro, y220) vão até ~x311. */
+.default-mode-container {
+  position: absolute;
+  top: 0;
+  display: flex;
+  transform: translate(100px, 224px);
+  display: -webkit-box;
+  justify-content: space-between;
+  -webkit-box-pack: justify;
+  -webkit-justify-content: space-between;
+  -ms-flex-pack: justify;
+  align-items: center;
+  -webkit-align-items: center;
+  -ms-flex-align: center;
+  z-index: 3;
+}
+
 .maxauto-icon-container {
   z-index: 3;
   justify-content: space-between;

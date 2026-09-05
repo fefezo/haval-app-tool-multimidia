@@ -5,4 +5,5 @@ public enum SteeringWheelAcControlType {
     TEMPERATURE,
     POWER,
     CIRCULATION,
+    DEFAULT_AC,
 }

@@ -10,6 +10,10 @@ var autoModeIcon = function (fill) {
 var internalIcon = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAAA8BAMAAADI0sRBAAAAJFBMVEV5pf57o/57nvd4ke1bjPJpfupvbH9HcExnlfhejfJhkfU9/+4C6j87AAAADHRSTlMiFQwG/gMBAFrOlQHp+XlJAAAC1ElEQVQ4y32VsU4jMRCGx9IVC5VtURA6777BrvIAJ02RpI3gDUhDfxQ0QUoBVEFKcXRBShHuAWh4uftnbK8dTrqRQGt/nvHMZGZM90l+3a0g11luZPV5T4k+yPL2uhIcuPtK+NdXVh1UpvKJrYQ/75Quh1GmyiN+iHQ4EeERx3t1s2vbth85FbqMsGt7/Osjp1q3B8jSdcLpflWo7oeQD2CLYjKWSTUAeue8T5zGa5UCAboQueCKeqUqwSmnRGVRoJoQ85RoP1JrbTqAC6jcCwV3vmPmt7c/RwP72KRiOYBylvkj9IFTHgOga5hPuBfcZZ/tgedrImqeXj6UB0/RtOi6s0hVcM3cuJYkWUHTQTveElV84TyN6bBnvCiUDPjW0ZisS+Y11fyZ54IV2ubAM9l9UpGD8PSRNKbmA+kQv5pdiktOTgTD7IfubA3RgQu254LDlWq8HSViXhTjdAYcnNg9rska2aid+8GGAjw+GusMWWwsTrEjN+G9NVFoM/sHb9gYq1K0z9fZuDssBMF4dXejyRfXLM+cg13r4Nvo+U74Fb/SJb9agrpql7g1SfwTR95NliprBa9FV6mVUijGGxifABdtql2b8Dv+UlgptiqwDTy/4Kxr6Zsc8Htf8JGcuG4r4/EGhAzXUEMIvPjMvBf6zPwKPSwRmt3UNa66KFVPqBSeWUdcy14yyntUKip8h+sPKEutOQR/xYs1lNFmLfmA8heRpoIPkn91YyY9iloLVpbb1Nf4aWInxh5rtRbnv23pfGNedvO9djBK8XQqJBPSztLfbeYezVKf9DodpAPRKRhYQb/aTIOOniFOOt+maefT0AtxcJ1MyiReDbdDN6TpkGWovnVo6qRVA32c01083+nMp/gA9In1yocO87iTF4HKA9EN378wz08eEChM69fkRmZqPDAdn6jlNC1vVlQ9bfIy1Uu8ZJR39NlLcjuepdV/5S/ikFxpmirRgwAAAABJRU5ErkJggg==";
 var externalIcon = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADwAAAA8BAMAAADI0sRBAAAAJ1BMVEV6pf97nfh7o/12kO5bjPJlf+leVZZlk/ZHcExejvJgj/P//+0A/9FP0Or/AAAADXRSTlMeDBMG/QMBVQDLlQEBuyPuOwAAAtFJREFUOMt9Vc1q20AQHpaAcU6VdOpttQRMchPCL1AWjHw18RtYl/ZgjCEkTxBoDyEITG+mGIzzALkk51z6Uv1m9kerFvfDyDv7zcyORrMz9Ojw4+21BW4Dlix9PNLj93dZ/cZjdZuAFT7ovX1tv7bRsnaY8hp79NE6rBISWEyFp7a3XNQD8AGgl6uULASBp8GZVeZRVY6ntrcsiqwqooLwBM8LYSORKpAzraLbsiyNccuCaWY9lefG4AeFsoTI1otgCiOQeSkKePBeTT5e2UuRs4OCxJa9emitw1JoPlgkpUhddtba5ufLURk5H9ZZTkIq0pc2oFmzf9BZ9snu4ZJIjWyPZgP7jGCsoUuMg1uM7h5OnicO+t7OmR0HNXjCMQ3OJ45LH+wTjDp+BoCfm5xgrDWYNW2dDw8F/gnWiJp1G8S1jqTGS97bRmiOeotgZ9HSqRzshtg3jU78LsFY+/9r0Mi0I1PfTmsM2uibTtJw6iM7uj+hDdjmZc1JmXv77U4iuLCKDCLeud0OaneMrdu5sIbMtd17n6OuT/ku0FsbgwkxRhrOuzRXo9Q5h6b7bES40OjGPtMk/Q7DFyP7BSp7Ogeh1+fYEZxfn6VReb/+Q+MrbujKxi80hKIDvveVPZ49emboM2oKJT7IKL8LisU+G6SFRSXlEmvc17xCzpHoGemJTbHnjNo9qhDXp8PxKGUtkBqer3HZlDYZas2MxWLj7iFfUgljhksGOnfijinlLvClV8cd44s/OTU7lVx99dA1ezZmGrw2/yCXBkRJa8jzPDNeKtkW3aGSZmXEVexdxvWuoqbat6w8k2bFbMaauXQuik1tANHkvlYXKZ+0x6KoxLryW9yFpdGGjomhQK4ZV9KhK9eXnVTwyHA9ldd1kY6C0M//mhHTab/kabAK3X4aR9Ri6sVlS8lou20Hk44nGYWdpWchuNkjgh9UPb6lwtsfbTVCnXvwUeQAAAAASUVORK5CYII=";
 
+// v2.0: zona "Modo padrão" — círculo com check, "aplicar perfil salvo".
+// Fica ao lado da circulação na tela de A/C (ver CSS .default-mode-container).
+var defaultModeIcon = "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="23" fill="none" stroke="#9ca3af" stroke-width="5"/><path fill="none" stroke="#9ca3af" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" d="M20 33l8 8 16-18"/></svg>');
+
 var formatSeconds = function (seconds) {
     if (!seconds || seconds <= 0) return '';
     var m = Math.floor(seconds / 60);
@@ -59,6 +63,18 @@ export function createStatusElement() {
                     recycleIconElement
                 ],
             }),
+            // v2.0: "Modo padrão" ao lado da circulação. O check dentro do círculo
+            // comunica a ação: focar + pressionar cima/baixo aplica o perfil salvo.
+            div({
+                className: 'default-mode-container',
+                children: [
+                    img({
+                        src: defaultModeIcon,
+                        className: 'w-54 h-54',
+                        alt: 'Modo padrão',
+                    })
+                ],
+            }),
             div({
                 className: `maxauto-icon-container ${isMaxAuto ? '' : 'hidden'}`,
                 children: [
@@ -106,6 +122,24 @@ export function createStatusElement() {
         }
     });
 
+    // v2.0: "Modo padrão" é o próximo alvo do ciclo após a circulação — mesma
+    // mecânica de foco (highlight azul) para indicar que cima/baixo aplica o perfil.
+    const defaultModeContainer = statusElement.querySelector('.default-mode-container');
+    const isDefaultModeFocused = stateManager.get('focusArea') === 'default';
+    if (isDefaultModeFocused) {
+        defaultModeContainer.classList.add('transition-all', 'focus-active');
+    }
+    var unsubscribeDefaultModeFocus = subscribe('focusArea', function(newFocusArea) {
+        const isFocused = newFocusArea === 'default';
+        if (isFocused) {
+            defaultModeContainer.classList.add('transition-all', 'focus-active');
+            defaultModeContainer.classList.remove('focus-inactive');
+        } else {
+            defaultModeContainer.classList.add('focus-inactive');
+            defaultModeContainer.classList.remove('transition-all', 'focus-active');
+        }
+    });
+
     const maxAutoContainer = statusElement.querySelector('.maxauto-icon-container');
     var unsubscribeMaxAuto = subscribe('maxauto', function(newMaxAuto) {
         const isMaxAuto = newMaxAuto === 1;
@@ -124,6 +158,7 @@ export function createStatusElement() {
         unsubscribeAuto();
         unsubscribeRecycle();
         unsubscribeRecycleFocus();
+        unsubscribeDefaultModeFocus();
         unsubscribeMaxAuto();
         unsubscribeDry();
     };
