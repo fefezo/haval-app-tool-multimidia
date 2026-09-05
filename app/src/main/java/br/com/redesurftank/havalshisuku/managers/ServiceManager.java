@@ -1359,9 +1359,19 @@ public class ServiceManager {
                     }
                     // Re-assert fresh-air circulation (CYCLE=1 on the H6) + AQS off every
                     // 3 seconds so the drying really dries with outside air, as requested.
+                    // v2.1: read-before-write — reescrever cegamente a cada 3s mandava ~80
+                    // comandos externos por secagem e cada escrita popava o painel nativo do
+                    // A/C na central por cima do GPS. Ler primeiro e escrever SÓ quando o
+                    // módulo derivou mantém a secagem silenciosa e ainda briga com a deriva.
                     if (dryingModeRemainingSeconds % 3 == 0) {
-                        updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0");
-                        updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "1"); // H6: 1 = fresh air / outside circulation
+                        String aqs = getUpdatedData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue());
+                        if (aqs == null || !aqs.equals("0")) {
+                            updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0"); // AQS could force internal circulation back
+                        }
+                        String cycle = getUpdatedData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue());
+                        if (cycle == null || !cycle.equals("1")) {
+                            updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "1"); // H6: 1 = fresh air / outside circulation
+                        }
                     }
                     dispatchServiceManagerEvent(ServiceManagerEventType.DRYING_MODE_STATUS_CHANGED, dryingModeRemainingSeconds);
                     backgroundHandler.postDelayed(this, 1000L);

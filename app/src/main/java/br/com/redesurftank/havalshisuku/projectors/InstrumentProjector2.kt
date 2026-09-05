@@ -10,6 +10,8 @@ import android.view.Display
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
+import android.util.Log
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -34,6 +36,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
     private val webViewsLoaded = mutableMapOf<WebView, Boolean>()
     private val pendingJsQueues = mutableMapOf<WebView, MutableList<String>>()
     private lateinit var root: FrameLayout;
+    private var webContainer: FrameLayout? = null
 
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key in listOf(
@@ -80,6 +83,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
         }
         root.addView(circularView)
         circularView.isVisible = false
+        webContainer = circularView
         setupAcControlView(circularView)
 
         ServiceManager.getInstance().addDataChangedListener { key, value ->
@@ -306,11 +310,39 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
                             pendingJsQueues.remove(it)
                         }
                     }
+
+                    override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                        // v2.1: o renderer do WebView morreu (ex.: pressão de memória na
+                        // central). Sem isso a view morta fica preta para sempre — o widget
+                        // do cluster "some" sem recuperação até o processo reiniciar.
+                        // Recria o WebView inteiro; se o card 1 (widget) estiver ativo, re-mostra.
+                        Log.w("InstrumentProjector2", "WebView renderer gone — recreating webview")
+                        recreateWebView()
+                        return true
+                    }
                 }
                 loadDataWithBaseURL(null, readRawHtml(context), "text/html", "UTF-8", null)
             }
             circularView.addView(webView)
             webView?.isVisible = false;
+        }
+    }
+
+    // v2.1: recria o WebView depois que o renderer morre (onRenderProcessGone). O novo
+    // carregamento re-enfileira os eventos recebidos no meio (evaluateJsIfReady) e o
+    // onPageFinished os drena, então o widget volta vivo com o estado atual.
+    private fun recreateWebView() {
+        val container = webContainer ?: return
+        webView?.let {
+            container.removeView(it)
+            it.destroy()
+        }
+        webView = null
+        webViewsLoaded.clear()
+        pendingJsQueues.clear()
+        setupAcControlView(container)
+        if (ServiceManager.getInstance().getClusterCardView() == 1) {
+            showWebView()
         }
     }
 
