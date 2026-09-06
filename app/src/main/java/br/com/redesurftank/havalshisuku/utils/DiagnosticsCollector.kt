@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.util.Log
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
 import br.com.redesurftank.havalshisuku.models.CarConstants
+import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -90,7 +91,12 @@ object DiagnosticsCollector {
             sb.appendLine("(vazias)")
         } else {
             prefs.all.entries.sortedBy { it.key }.forEach { (k, v) ->
-                sb.appendLine("$k=$v")
+                // O token do GitHub nunca pode vazar no próprio log enviado
+                if (k == SharedPreferencesKeys.GITHUB_GIST_TOKEN.key) {
+                    sb.appendLine("$k=<oculto — configurado>")
+                } else {
+                    sb.appendLine("$k=$v")
+                }
             }
         }
         sb.appendLine("")

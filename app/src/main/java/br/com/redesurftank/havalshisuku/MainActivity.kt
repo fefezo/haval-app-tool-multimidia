@@ -2,6 +2,8 @@ package br.com.redesurftank.havalshisuku
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -50,6 +52,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeveloperMode
 import androidx.compose.material.icons.filled.Info
@@ -59,6 +62,8 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Weekend
 import androidx.compose.material.icons.filled.Window
@@ -77,6 +82,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -109,6 +115,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -134,6 +142,7 @@ import br.com.redesurftank.havalshisuku.ui.components.TwoColumnSettingsLayout
 import br.com.redesurftank.havalshisuku.ui.theme.HavalShisukuTheme
 import br.com.redesurftank.havalshisuku.utils.DiagnosticsCollector
 import br.com.redesurftank.havalshisuku.utils.FridaUtils
+import br.com.redesurftank.havalshisuku.utils.GistUploader
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
@@ -2953,10 +2962,15 @@ fun DiagnosticsTab() {
     var servicesActive by remember { mutableStateOf(false) }
     var clusterCard by remember { mutableIntStateOf(-1) }
     var mainScreenOn by remember { mutableStateOf(false) }
-    var collecting by remember { mutableStateOf(false) }
+    var sending by remember { mutableStateOf(false) }
     var lastFile by remember { mutableStateOf<String?>(null) }
     var lastError by remember { mutableStateOf<String?>(null) }
     var lastSummary by remember { mutableStateOf<String?>(null) }
+    var lastGistUrl by remember { mutableStateOf<String?>(null) }
+    var token by remember {
+        mutableStateOf(prefs.getString(SharedPreferencesKeys.GITHUB_GIST_TOKEN.key, "") ?: "")
+    }
+    var tokenVisible by remember { mutableStateOf(false) }
 
     // Espelho ao vivo do estado que o widget do cluster enxerga
     LaunchedEffect(Unit) {
@@ -3065,7 +3079,7 @@ fun DiagnosticsTab() {
             }
         }
 
-        // Seção: coletar logs
+        // Seção: enviar logs ao GitHub
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
@@ -3078,22 +3092,70 @@ fun DiagnosticsTab() {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    "Enviar Logs de Diagnóstico",
+                    "Enviar ao GitHub",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
                 Text(
-                    "Coleta um arquivo .txt com o estado do app e o logcat do Android " +
-                        "(processo do Haval + buffer de crash + linha de saúde do widget a cada 30s). " +
-                        "Depois é só enviar o arquivo para análise.",
+                    "Coleta um arquivo .txt com o estado do app e o logcat (processo do Haval + " +
+                        "buffer de crash + linha de saúde do widget a cada 30s) e sobe como gist " +
+                        "público na sua conta. A URL aparece aqui — é só colar no chat para a " +
+                        "análise. O token fica salvo apenas neste aparelho e sai oculto do log.",
                     color = Color(0xFFB0B8C4),
                     fontSize = 14.sp
                 )
 
                 HorizontalDivider(color = Color(0xFF1D2430))
 
-                if (collecting) {
+                TextField(
+                    value = token,
+                    onValueChange = { newToken ->
+                        token = newToken
+                        prefs.edit()
+                            .putString(SharedPreferencesKeys.GITHUB_GIST_TOKEN.key, newToken)
+                            .apply()
+                    },
+                    label = { Text("Token GitHub (escopo \"gists\")") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = if (tokenVisible) {
+                        VisualTransformation.None
+                    } else {
+                        PasswordVisualTransformation()
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    trailingIcon = {
+                        IconButton(onClick = { tokenVisible = !tokenVisible }) {
+                            Icon(
+                                if (tokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (tokenVisible) "Ocultar token" else "Mostrar token",
+                                tint = Color(0xFFB0B8C4)
+                            )
+                        }
+                    },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color(0xFF2A2F37),
+                        unfocusedContainerColor = Color(0xFF2A2F37),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color(0xFFB0B8C4),
+                        focusedIndicatorColor = Color(0xFF4A9EFF),
+                        unfocusedIndicatorColor = Color(0xFF3A3F47),
+                        focusedLabelColor = Color(0xFF4A9EFF),
+                        unfocusedLabelColor = Color(0xFFB0B8C4)
+                    )
+                )
+
+                if (token.isBlank()) {
+                    Text(
+                        "Cole acima o token de github.com/settings/tokens com o escopo \"gists\" " +
+                            "marcado (nunca entra no APK — fica só neste aparelho).",
+                        color = Color(0xFFEAA33E),
+                        fontSize = 13.sp
+                    )
+                }
+
+                if (sending) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -3103,15 +3165,68 @@ fun DiagnosticsTab() {
                             strokeWidth = 2.dp,
                             color = AppColors.Primary
                         )
-                        Text("Coletando logs…", color = Color(0xFFB0B8C4), fontSize = 14.sp)
+                        Text("Coletando e enviando…", color = Color(0xFFB0B8C4), fontSize = 14.sp)
                     }
                 } else {
                     Button(
                         onClick = {
-                            collecting = true
+                            sending = true
                             lastError = null
-                            lastFile = null
                             lastSummary = null
+                            lastGistUrl = null
+                            lastFile = null
+                            scope.launch {
+                                try {
+                                    val file = withContext(Dispatchers.IO) {
+                                        DiagnosticsCollector.capture(context, prefs)
+                                    }
+                                    lastFile = file.absolutePath
+                                    lastSummary = String.format(
+                                        Locale.US,
+                                        "%.1f KB coletados.",
+                                        file.length() / 1024f
+                                    )
+                                    val url = withContext(Dispatchers.IO) {
+                                        GistUploader.upload(file, token)
+                                    }
+                                    lastGistUrl = url
+                                } catch (e: GistUploader.UploadException) {
+                                    Log.e(TAG, "Falha no upload do gist (HTTP ${e.code})", e)
+                                    lastError = e.message ?: "Falha no upload (HTTP ${e.code})"
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Falha ao coletar/enviar diagnóstico", e)
+                                    lastError = e.message ?: "Erro desconhecido ao coletar logs"
+                                } finally {
+                                    sending = false
+                                }
+                            }
+                        },
+                        enabled = token.isNotBlank(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AppColors.Primary,
+                            disabledContainerColor = Color(0xFF2A2F37),
+                            disabledContentColor = Color(0xFF6A7280)
+                        ),
+                        shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius)
+                    ) {
+                        Icon(
+                            Icons.Default.BugReport,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Coletar e enviar ao GitHub", fontSize = 16.sp)
+                    }
+
+                    TextButton(
+                        onClick = {
+                            sending = true
+                            lastError = null
+                            lastSummary = null
+                            lastGistUrl = null
                             scope.launch {
                                 try {
                                     val file = withContext(Dispatchers.IO) {
@@ -3128,25 +3243,18 @@ fun DiagnosticsTab() {
                                     Log.e(TAG, "Falha ao coletar diagnóstico", e)
                                     lastError = e.message ?: "Erro desconhecido ao coletar logs"
                                 } finally {
-                                    collecting = false
+                                    sending = false
                                 }
                             }
                         },
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = AppColors.Primary
-                        ),
-                        shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius)
+                            .align(Alignment.CenterHorizontally)
                     ) {
-                        Icon(
-                            Icons.Default.BugReport,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
+                        Text(
+                            "Prefiro enviar por outro aplicativo (sem GitHub)",
+                            color = Color(0xFF4A9EFF),
+                            fontSize = 13.sp
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Coletar e enviar logs", fontSize = 16.sp)
                     }
                 }
 
@@ -3163,6 +3271,46 @@ fun DiagnosticsTab() {
                         it,
                         color = Color(0xFF4ADE80),
                         fontSize = 14.sp
+                    )
+                }
+
+                lastGistUrl?.let { url ->
+                    HorizontalDivider(color = Color(0xFF1D2430))
+                    Text(
+                        "Gist criado! Cole esta URL no chat para a análise:",
+                        color = Color(0xFFB0B8C4),
+                        fontSize = 14.sp
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            url,
+                            modifier = Modifier.weight(1f),
+                            color = Color(0xFF4ADE80),
+                            fontSize = 13.sp
+                        )
+                        IconButton(
+                            onClick = {
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText("URL do gist", url))
+                                Toast.makeText(context, "URL copiada — cole no chat", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = "Copiar URL",
+                                modifier = Modifier.size(18.dp),
+                                tint = Color(0xFFB0B8C4)
+                            )
+                        }
+                    }
+                    Text(
+                        "O gist é público (qualquer um com a URL vê). Para análise é ideal; " +
+                            "depois é só apagar em gist.github.com.",
+                        color = Color(0xFFEAA33E),
+                        fontSize = 12.sp
                     )
                 }
 

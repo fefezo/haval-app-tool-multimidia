@@ -66,6 +66,7 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     MAX_AC_TARGET_TEMP("maxAcTargetTemp", "Temperatura alvo para o Max AC"),
     MAX_AC_TIMEOUT("maxAcTimeout", "Tempo limite para desativar o Max AC (em minutos)"),
     MAX_AC_SEAT_VENTILATION("maxAcSeatVentilation", "Ventilar o banco do motorista durante o Max AC"),
-    MAX_AC_BLOWER_MODE("maxAcBlowerMode", "Direção do ar durante o Max AC")
+    MAX_AC_BLOWER_MODE("maxAcBlowerMode", "Direção do ar durante o Max AC"),
+    GITHUB_GIST_TOKEN("githubGistToken", "Token GitHub para enviar logs de diagnóstico (escopo gists)")
 
 }
