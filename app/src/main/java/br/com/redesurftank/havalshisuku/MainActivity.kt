@@ -48,6 +48,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeveloperMode
@@ -131,6 +132,7 @@ import br.com.redesurftank.havalshisuku.ui.components.SettingItem
 import br.com.redesurftank.havalshisuku.ui.components.StyledCard
 import br.com.redesurftank.havalshisuku.ui.components.TwoColumnSettingsLayout
 import br.com.redesurftank.havalshisuku.ui.theme.HavalShisukuTheme
+import br.com.redesurftank.havalshisuku.utils.DiagnosticsCollector
 import br.com.redesurftank.havalshisuku.utils.FridaUtils
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
@@ -197,6 +199,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
         add(DrawerMenuItem("Valores Atuais", Icons.Default.DeveloperMode))
         add(DrawerMenuItem("Instalar Apps", Icons.Default.ShoppingCart))
         add(DrawerMenuItem("Informações", Icons.Default.Info))
+        add(DrawerMenuItem("Diagnóstico", Icons.Default.BugReport))
         if (advancedUse) {
             add(DrawerMenuItem("Frida Hooks", Icons.Default.Build))
         }
@@ -315,7 +318,8 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         1 -> CurrentValuesTab()
                         2 -> InstallAppsTab()
                         3 -> InformacoesTab()
-                        4 -> FridaHooksTab()
+                        4 -> DiagnosticsTab()
+                        5 -> FridaHooksTab()
                     }
                 }
             }
@@ -2923,6 +2927,254 @@ fun InformacoesTab() {
                 }
             }
         )
+    }
+}
+
+// Compartilha o arquivo de diagnóstico via FileProvider (authority <app>.provider,
+// declarada no manifest com external-files-path — cobre getExternalFilesDir).
+private fun shareDiagnosticsFile(context: Context, file: File) {
+    val uri = FileProvider.getUriForFile(context, context.packageName + ".provider", file)
+    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, "Logs Haval Tool — diagnóstico")
+        putExtra(Intent.EXTRA_TEXT, "Logs de diagnóstico do Haval Tool (widget do cluster).")
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(sendIntent, "Enviar logs"))
+}
+
+@Composable
+fun DiagnosticsTab() {
+    val context = LocalContext.current
+    val prefs = App.getDeviceProtectedContext().getSharedPreferences("haval_prefs", Context.MODE_PRIVATE)
+    val scope = rememberCoroutineScope()
+
+    var servicesActive by remember { mutableStateOf(false) }
+    var clusterCard by remember { mutableIntStateOf(-1) }
+    var mainScreenOn by remember { mutableStateOf(false) }
+    var collecting by remember { mutableStateOf(false) }
+    var lastFile by remember { mutableStateOf<String?>(null) }
+    var lastError by remember { mutableStateOf<String?>(null) }
+    var lastSummary by remember { mutableStateOf<String?>(null) }
+
+    // Espelho ao vivo do estado que o widget do cluster enxerga
+    LaunchedEffect(Unit) {
+        while (true) {
+            val sm = ServiceManager.getInstance()
+            servicesActive = sm.isServicesInitialized
+            mainScreenOn = sm.isMainScreenOn
+            clusterCard = sm.clusterCardView
+            delay(250)
+        }
+    }
+
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Seção: estado do widget
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF13151A)
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "Estado do Widget do Cluster",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Text(
+                    "Como o serviço está vendo as coisas agora. Se o widget sumiu, " +
+                        "é este estado que interessa comparar com o que aparece no cluster.",
+                    color = Color(0xFFB0B8C4),
+                    fontSize = 14.sp
+                )
+
+                HorizontalDivider(color = Color(0xFF1D2430))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Serviços:", color = Color(0xFFB0B8C4))
+                    Text(
+                        if (servicesActive) "Ativo" else "Inativo",
+                        color = if (servicesActive) Color(0xFF4ADE80) else Color(0xFFEF4444),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Tela principal (motor ligado):", color = Color(0xFFB0B8C4))
+                    Text(
+                        if (mainScreenOn) "Ligada" else "Desligada",
+                        color = if (mainScreenOn) Color(0xFF4ADE80) else Color(0xFFEF4444),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Card do cluster (msg 133):", color = Color(0xFFB0B8C4))
+                    Text(
+                        when (clusterCard) {
+                            1 -> "1 — card principal (widget A/C)"
+                            -1 -> "nunca recebido"
+                            else -> "$clusterCard — widget oculto"
+                        },
+                        color = Color.White,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                if (servicesActive && clusterCard != 1) {
+                    Text(
+                        "Atenção: o serviço nunca recebeu (ou não está mais em) card 1. " +
+                            "Isso explica o widget sumido — o cluster não está reportando a tela " +
+                            "principal para o app.",
+                        color = Color(0xFFEAA33E),
+                        fontSize = 13.sp
+                    )
+                } else if (servicesActive && clusterCard == 1) {
+                    Text(
+                        "O card 1 está ativo — o app ACHA que o widget deveria estar visível. " +
+                            "Se ele não aparece no cluster, o problema está na projeção/WebView, " +
+                            "e os logs vão mostrar onde.",
+                        color = Color(0xFF4ADE80),
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        }
+
+        // Seção: coletar logs
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF13151A)
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "Enviar Logs de Diagnóstico",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Text(
+                    "Coleta um arquivo .txt com o estado do app e o logcat do Android " +
+                        "(processo do Haval + buffer de crash + linha de saúde do widget a cada 30s). " +
+                        "Depois é só enviar o arquivo para análise.",
+                    color = Color(0xFFB0B8C4),
+                    fontSize = 14.sp
+                )
+
+                HorizontalDivider(color = Color(0xFF1D2430))
+
+                if (collecting) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = AppColors.Primary
+                        )
+                        Text("Coletando logs…", color = Color(0xFFB0B8C4), fontSize = 14.sp)
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            collecting = true
+                            lastError = null
+                            lastFile = null
+                            lastSummary = null
+                            scope.launch {
+                                try {
+                                    val file = withContext(Dispatchers.IO) {
+                                        DiagnosticsCollector.capture(context, prefs)
+                                    }
+                                    lastFile = file.absolutePath
+                                    lastSummary = String.format(
+                                        Locale.US,
+                                        "%.1f KB de logs coletados.",
+                                        file.length() / 1024f
+                                    )
+                                    shareDiagnosticsFile(context, file)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Falha ao coletar diagnóstico", e)
+                                    lastError = e.message ?: "Erro desconhecido ao coletar logs"
+                                } finally {
+                                    collecting = false
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AppColors.Primary
+                        ),
+                        shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius)
+                    ) {
+                        Icon(
+                            Icons.Default.BugReport,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Coletar e enviar logs", fontSize = 16.sp)
+                    }
+                }
+
+                lastError?.let {
+                    Text(
+                        "Erro: $it",
+                        color = Color(0xFFEF4444),
+                        fontSize = 14.sp
+                    )
+                }
+
+                lastSummary?.let {
+                    Text(
+                        it,
+                        color = Color(0xFF4ADE80),
+                        fontSize = 14.sp
+                    )
+                }
+
+                lastFile?.let {
+                    Text(
+                        "Arquivo: $it",
+                        color = Color(0xFFB0B8C4),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
     }
 }
 

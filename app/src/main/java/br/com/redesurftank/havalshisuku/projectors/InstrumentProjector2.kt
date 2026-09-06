@@ -6,6 +6,8 @@ import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.Outline
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Display
 import android.view.View
 import android.view.ViewOutlineProvider
@@ -37,6 +39,29 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
     private val pendingJsQueues = mutableMapOf<WebView, MutableList<String>>()
     private lateinit var root: FrameLayout;
     private var webContainer: FrameLayout? = null
+
+    // v2.2: diagnóstico — linha de saúde periódica (30s) no logcat. O dump de
+    // logs coleta isso, então mesmo com o cluster mudo (sem msg 133) dá para
+    // ver se o widget está vivo, carregado e visível quando o bug acontece.
+    private val diagnosticsHandler = Handler(Looper.getMainLooper())
+    private val healthLogRunnable = object : Runnable {
+        override fun run() {
+            try {
+                Log.i(
+                    "InstrumentProjector2",
+                    "HEALTH card=${ServiceManager.getInstance().getClusterCardView()} " +
+                        "mainScreenOn=${ServiceManager.getInstance().isMainScreenOn} " +
+                        "rootVisible=${root.isVisible} circularVisible=${webContainer?.isVisible} " +
+                        "webView=${if (webView == null) "null" else "alive"} loaded=${webViewsLoaded[webView] == true}"
+                )
+            } catch (t: Throwable) {
+                Log.w("InstrumentProjector2", "HEALTH falhou ao coletar estado", t)
+            }
+            if (isShowing) {
+                diagnosticsHandler.postDelayed(this, 30_000L)
+            }
+        }
+    }
 
     private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key in listOf(
@@ -85,6 +110,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
         circularView.isVisible = false
         webContainer = circularView
         setupAcControlView(circularView)
+        Log.i("InstrumentProjector2", "onCreate — projector criado, shouldShow=${shouldShowProjector()}")
 
         ServiceManager.getInstance().addDataChangedListener { key, value ->
             ensureUi {
@@ -212,15 +238,17 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
                 when (event) {
                     ServiceManagerEventType.CLUSTER_CARD_CHANGED -> {
                         val card = args[0] as Int
+                        Log.i("InstrumentProjector2", "CLUSTER_CARD_CHANGED card=$card | circular.isVisible=${circularView.isVisible} | webView=${if (webView == null) "null" else "alive, loaded=${webViewsLoaded[webView] == true}"}")
                         circularView.isVisible = card != 0
                         webView?.isVisible = false;
                         when (card) {
                             1 -> {
+                                Log.i("InstrumentProjector2", "Card 1 ativo — chamando showWebView()")
                                 showWebView()
                             }
 
                             else -> {
-
+                                Log.i("InstrumentProjector2", "Card $card — widget oculto")
                             }
                         }
                     }
@@ -289,6 +317,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
         }
 
         root.isVisible = shouldShowProjector() && ServiceManager.getInstance().isMainScreenOn
+        diagnosticsHandler.postDelayed(healthLogRunnable, 30_000L)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -304,6 +333,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
                         super.onPageFinished(view, url)
                         view?.let {
                             webViewsLoaded[it] = true
+                            Log.i("InstrumentProjector2", "WebView onPageFinished — marcado como carregado, atualizando valores")
                             updateValuesWebView()
                             val queue = pendingJsQueues[it] ?: return
                             queue.forEach { js -> it.evaluateJavascript(js, null) }
@@ -316,7 +346,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
                         // central). Sem isso a view morta fica preta para sempre — o widget
                         // do cluster "some" sem recuperação até o processo reiniciar.
                         // Recria o WebView inteiro; se o card 1 (widget) estiver ativo, re-mostra.
-                        Log.w("InstrumentProjector2", "WebView renderer gone — recreating webview")
+                        Log.w("InstrumentProjector2", "WebView renderer gone (crash=${detail?.didCrash()}) — recriando webview")
                         recreateWebView()
                         return true
                     }
@@ -347,6 +377,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
     }
 
     private fun showWebView() {
+        Log.i("InstrumentProjector2", "showWebView() — webView=${if (webView == null) "null" else "existe"}, loaded=${webViewsLoaded[webView] == true}")
         webView?.isVisible = true
         webView?.let {
             if (webViewsLoaded[it] == true) {
