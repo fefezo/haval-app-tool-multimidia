@@ -43,8 +43,10 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
     // v2.3: diagnóstico — linha de saúde periódica (30s) no logcat em Log.w de
     // propósito: o logcat deste head unit FILTRA INFO (só WARN+ é gravado — vimos
     // na prática que os Log.i da v2.2 nunca chegaram ao dump). O HEALTH roda
-    // enquanto a Presentation viver (não só enquanto isShowing, para detectar
-    // também o caso da projeção parada) e é removido no onDestroy.
+    // incondicionalmente enquanto o processo viver (não só enquanto isShowing,
+    // para detectar também o caso da projeção parada). A Presentation não expõe
+    // onDestroy nesta API do projeto, e a instância já é retida pelos listeners
+    // globais do ServiceManager de qualquer forma — sem limpeza, sem leak novo.
     private val diagnosticsHandler = Handler(Looper.getMainLooper())
     private val healthLogRunnable = object : Runnable {
         override fun run() {
