@@ -143,6 +143,9 @@ import br.com.redesurftank.havalshisuku.ui.theme.HavalShisukuTheme
 import br.com.redesurftank.havalshisuku.utils.DiagnosticsCollector
 import br.com.redesurftank.havalshisuku.utils.FridaUtils
 import br.com.redesurftank.havalshisuku.utils.GistUploader
+import br.com.redesurftank.havalshisuku.utils.ShizukuUtils
+import br.com.redesurftank.havalshisuku.utils.TelnetClientWrapper
+import rikka.shizuku.Shizuku
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
@@ -2953,6 +2956,45 @@ private fun shareDiagnosticsFile(context: Context, file: File) {
     context.startActivity(Intent.createChooser(sendIntent, "Enviar logs"))
 }
 
+/**
+ * Reinicia a central (mesmo efeito do reset pelo botão físico). Roda o comando
+ * 2s depois em background para o shell responder antes de a conexão cair —
+ * se o reboot fosse síncrono, o telnet reportaria erro quando a central caísse.
+ *
+ * Caminho 1: telnet local (porta 23) — o shell da central é root (prompt ":/ #")
+ * e o app tem acesso por ter UID ≤ 10999 (mesmo mecanismo que inicia o Shizuku).
+ * Caminho 2 (fallback): Shizuku — o servidor também foi iniciado via telnet root.
+ *
+ * @return null em caso de sucesso; senão, mensagem de erro amigável.
+ */
+private fun restartHeadUnit(): String? {
+    // Caminho 1: telnet local (root).
+    try {
+        val telnet = TelnetClientWrapper()
+        telnet.connect("127.0.0.1", 23)
+        try {
+            telnet.executeCommand("(sleep 2; reboot) >/dev/null 2>&1 &")
+            Log.w(TAG, "Reboot da central enfileirado via telnet (127.0.0.1:23)")
+            return null
+        } finally {
+            telnet.disconnect()
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "Telnet indisponível para o reboot, tentando Shizuku", e)
+    }
+    // Caminho 2: Shizuku (servidor iniciado via telnet — também roda como root).
+    if (Shizuku.pingBinder()) {
+        ShizukuUtils.runCommandOnBackground(
+            arrayOf("sh", "-c", "sleep 2; reboot"),
+            null
+        )
+        Log.w(TAG, "Reboot da central enfileirado via Shizuku")
+        return null
+    }
+    return "Não consegui reiniciar: o telnet local não respondeu e o serviço Shizuku " +
+        "não está ativo. Use o botão físico de reset."
+}
+
 @Composable
 fun DiagnosticsTab() {
     val context = LocalContext.current
@@ -2971,6 +3013,11 @@ fun DiagnosticsTab() {
         mutableStateOf(prefs.getString(SharedPreferencesKeys.GITHUB_GIST_TOKEN.key, "") ?: "")
     }
     var tokenVisible by remember { mutableStateOf(false) }
+
+    var showRestartDialog by remember { mutableStateOf(false) }
+    var restarting by remember { mutableStateOf(false) }
+    var restartDone by remember { mutableStateOf<String?>(null) }
+    var restartError by remember { mutableStateOf<String?>(null) }
 
     // Espelho ao vivo do estado que o widget do cluster enxerga
     LaunchedEffect(Unit) {
@@ -3077,6 +3124,140 @@ fun DiagnosticsTab() {
                     )
                 }
             }
+        }
+
+        // Seção: reiniciar a central
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF13151A)
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "Reiniciar a central",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Text(
+                    "Mesmo efeito do reset pelo botão físico: a tela desliga e o sistema " +
+                        "volta em ~1 minuto (o app volta sozinho). Quando o widget some de vez " +
+                        "ou o app fica travado, é o que costuma resolver — os serviços da " +
+                        "central sobem do zero.",
+                    color = Color(0xFFB0B8C4),
+                    fontSize = 14.sp
+                )
+
+                HorizontalDivider(color = Color(0xFF1D2430))
+
+                if (restarting) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = AppColors.Primary
+                        )
+                        Text(
+                            "Enviando comando… a tela vai desligar em instantes.",
+                            color = Color(0xFFB0B8C4),
+                            fontSize = 14.sp
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = { showRestartDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFDC2626)
+                        ),
+                        shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius)
+                    ) {
+                        Icon(
+                            Icons.Default.PowerSettingsNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Reiniciar a central agora", fontSize = 16.sp)
+                    }
+                }
+
+                restartDone?.let {
+                    Text(
+                        it,
+                        color = Color(0xFF4ADE80),
+                        fontSize = 14.sp
+                    )
+                }
+
+                restartError?.let {
+                    Text(
+                        it,
+                        color = Color(0xFFEF4444),
+                        fontSize = 14.sp
+                    )
+                }
+            }
+        }
+
+        if (showRestartDialog) {
+            AlertDialog(
+                onDismissRequest = { showRestartDialog = false },
+                containerColor = Color(0xFF1A1E24),
+                titleContentColor = Color.White,
+                textContentColor = Color(0xFFB0B8C4),
+                title = { Text("Reiniciar a central?") },
+                text = {
+                    Text(
+                        "A tela da central vai desligar e o sistema reinicia em ~1 minuto " +
+                            "(o app volta sozinho ao terminar). Espere o carro estar parado — " +
+                            "navegação e câmeras ficam fora durante o reinício."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showRestartDialog = false
+                            restarting = true
+                            restartError = null
+                            restartDone = null
+                            scope.launch {
+                                val error = withContext(Dispatchers.IO) {
+                                    restartHeadUnit()
+                                }
+                                restarting = false
+                                if (error == null) {
+                                    restartDone =
+                                        "Comando enviado — a central vai desligar em instantes."
+                                } else {
+                                    restartError = error
+                                }
+                            }
+                        }
+                    ) {
+                        Text(
+                            "Reiniciar",
+                            color = Color(0xFFEF4444),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRestartDialog = false }) {
+                        Text("Cancelar", color = Color(0xFFB0B8C4))
+                    }
+                }
+            )
         }
 
         // Seção: enviar logs ao GitHub
