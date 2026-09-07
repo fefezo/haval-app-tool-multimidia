@@ -47,7 +47,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 import br.com.redesurftank.App;
 import br.com.redesurftank.havalshisuku.listeners.IDataChanged;
@@ -297,13 +296,28 @@ public class ServiceManager {
         }
 
         try {
-            IBinder controlBinder = new ShizukuBinderWrapper(getSystemService("com.beantechs.intelligentvehiclecontrol"));
+            // v2.3: o serviço pode ainda não estar registrado no ServiceManager logo
+            // após o boot — getSystemService() devolve null e o wrapper/requireNonNull
+            // anterior estourava NPE no main thread (FATAL), derrubando o processo no
+            // meio da inicialização. Agora falha limpa e o ForegroundService.restart()
+            // tenta de novo em 1s.
+            IBinder rawControlBinder = getSystemService("com.beantechs.intelligentvehiclecontrol");
+            if (rawControlBinder == null) {
+                Log.e(TAG, "IntelligentVehicleControlService not registered yet");
+                return false;
+            }
+            IBinder controlBinder = new ShizukuBinderWrapper(rawControlBinder);
             if (!controlBinder.pingBinder()) {
                 Log.e(TAG, "IntelligentVehicleControlService binder not alive");
                 return false;
             }
             controlService = IIntelligentVehicleControlService.Stub.asInterface(controlBinder);
-            IBinder poolBinder = new ShizukuBinderWrapper(getSystemService("com.beantechs.voice.adapter.VoiceAdapterService"));
+            IBinder rawVoiceBinder = getSystemService("com.beantechs.voice.adapter.VoiceAdapterService");
+            if (rawVoiceBinder == null) {
+                Log.e(TAG, "VoiceAdapterService not registered yet");
+                return false;
+            }
+            IBinder poolBinder = new ShizukuBinderWrapper(rawVoiceBinder);
             if (!poolBinder.pingBinder()) {
                 Log.e(TAG, "IBinderPool binder not alive");
                 return false;
@@ -1880,7 +1894,9 @@ public class ServiceManager {
 
     private static IBinder getSystemService(String serviceName) {
         try {
-            return (IBinder) Objects.requireNonNull(getService.invoke(null, serviceName));
+            // Pode retornar null quando o serviço ainda não foi registrado no boot —
+            // quem chama decide como reagir.
+            return (IBinder) getService.invoke(null, serviceName);
         } catch (IllegalAccessException | InvocationTargetException e) {
             Log.e(TAG, "Error getting system service: " + serviceName, e);
             throw new RuntimeException(e);

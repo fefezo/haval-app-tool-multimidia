@@ -40,16 +40,19 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
     private lateinit var root: FrameLayout;
     private var webContainer: FrameLayout? = null
 
-    // v2.2: diagnóstico — linha de saúde periódica (30s) no logcat. O dump de
-    // logs coleta isso, então mesmo com o cluster mudo (sem msg 133) dá para
-    // ver se o widget está vivo, carregado e visível quando o bug acontece.
+    // v2.3: diagnóstico — linha de saúde periódica (30s) no logcat em Log.w de
+    // propósito: o logcat deste head unit FILTRA INFO (só WARN+ é gravado — vimos
+    // na prática que os Log.i da v2.2 nunca chegaram ao dump). O HEALTH roda
+    // enquanto a Presentation viver (não só enquanto isShowing, para detectar
+    // também o caso da projeção parada) e é removido no onDestroy.
     private val diagnosticsHandler = Handler(Looper.getMainLooper())
     private val healthLogRunnable = object : Runnable {
         override fun run() {
             try {
-                Log.i(
+                Log.w(
                     "InstrumentProjector2",
-                    "HEALTH card=${ServiceManager.getInstance().getClusterCardView()} " +
+                    "HEALTH isShowing=${isShowing} " +
+                        "card=${ServiceManager.getInstance().getClusterCardView()} " +
                         "mainScreenOn=${ServiceManager.getInstance().isMainScreenOn} " +
                         "rootVisible=${root.isVisible} circularVisible=${webContainer?.isVisible} " +
                         "webView=${if (webView == null) "null" else "alive"} loaded=${webViewsLoaded[webView] == true}"
@@ -57,9 +60,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
             } catch (t: Throwable) {
                 Log.w("InstrumentProjector2", "HEALTH falhou ao coletar estado", t)
             }
-            if (isShowing) {
-                diagnosticsHandler.postDelayed(this, 30_000L)
-            }
+            diagnosticsHandler.postDelayed(this, 30_000L)
         }
     }
 
@@ -110,7 +111,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
         circularView.isVisible = false
         webContainer = circularView
         setupAcControlView(circularView)
-        Log.i("InstrumentProjector2", "onCreate — projector criado, shouldShow=${shouldShowProjector()}")
+        Log.w("InstrumentProjector2", "onCreate — projector criado no display ${display.displayId}, shouldShow=${shouldShowProjector()}")
 
         ServiceManager.getInstance().addDataChangedListener { key, value ->
             ensureUi {
@@ -238,17 +239,17 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
                 when (event) {
                     ServiceManagerEventType.CLUSTER_CARD_CHANGED -> {
                         val card = args[0] as Int
-                        Log.i("InstrumentProjector2", "CLUSTER_CARD_CHANGED card=$card | circular.isVisible=${circularView.isVisible} | webView=${if (webView == null) "null" else "alive, loaded=${webViewsLoaded[webView] == true}"}")
+                        Log.w("InstrumentProjector2", "CLUSTER_CARD_CHANGED card=$card | isShowing=${isShowing} rootVisible=${root.isVisible} | circular.isVisible=${circularView.isVisible} | webView=${if (webView == null) "null" else "alive, loaded=${webViewsLoaded[webView] == true}"}")
                         circularView.isVisible = card != 0
                         webView?.isVisible = false;
                         when (card) {
                             1 -> {
-                                Log.i("InstrumentProjector2", "Card 1 ativo — chamando showWebView()")
+                                Log.w("InstrumentProjector2", "Card 1 ativo — chamando showWebView()")
                                 showWebView()
                             }
 
                             else -> {
-                                Log.i("InstrumentProjector2", "Card $card — widget oculto")
+                                Log.w("InstrumentProjector2", "Card $card — widget oculto")
                             }
                         }
                     }
@@ -317,12 +318,14 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
         }
 
         root.isVisible = shouldShowProjector() && ServiceManager.getInstance().isMainScreenOn
+        Log.w("InstrumentProjector2", "onCreate — root.isVisible=${root.isVisible} (shouldShow=${shouldShowProjector()}, mainScreenOn=${ServiceManager.getInstance().isMainScreenOn})")
         diagnosticsHandler.postDelayed(healthLogRunnable, 30_000L)
     }
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupAcControlView(circularView: FrameLayout) {
         if (webView == null) {
+            Log.w("InstrumentProjector2", "setupAcControlView — criando WebView (1ª vez ou após recreate)")
             webView = WebView(context).apply {
                 layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
                 settings.javaScriptEnabled = true
@@ -333,7 +336,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
                         super.onPageFinished(view, url)
                         view?.let {
                             webViewsLoaded[it] = true
-                            Log.i("InstrumentProjector2", "WebView onPageFinished — marcado como carregado, atualizando valores")
+                            Log.w("InstrumentProjector2", "WebView onPageFinished — marcado como carregado, atualizando valores")
                             updateValuesWebView()
                             val queue = pendingJsQueues[it] ?: return
                             queue.forEach { js -> it.evaluateJavascript(js, null) }
@@ -362,6 +365,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
     // carregamento re-enfileira os eventos recebidos no meio (evaluateJsIfReady) e o
     // onPageFinished os drena, então o widget volta vivo com o estado atual.
     private fun recreateWebView() {
+        Log.w("InstrumentProjector2", "recreateWebView() — recriando WebView após renderer gone")
         val container = webContainer ?: return
         webView?.let {
             container.removeView(it)
@@ -377,7 +381,7 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
     }
 
     private fun showWebView() {
-        Log.i("InstrumentProjector2", "showWebView() — webView=${if (webView == null) "null" else "existe"}, loaded=${webViewsLoaded[webView] == true}")
+        Log.w("InstrumentProjector2", "showWebView() — webView=${if (webView == null) "null" else "existe"}, loaded=${webViewsLoaded[webView] == true}, root.isVisible=${root.isVisible}")
         webView?.isVisible = true
         webView?.let {
             if (webViewsLoaded[it] == true) {
@@ -442,12 +446,14 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
 
     override fun carMainScreenOff() {
         ensureUi {
+            Log.w("InstrumentProjector2", "carMainScreenOff — escondendo root (motor desligado?)")
             root.isVisible = false;
         }
     }
 
     override fun carMainScreenOn() {
         ensureUi {
+            Log.w("InstrumentProjector2", "carMainScreenOn — mostrando root (motor ligado)")
             root.isVisible = true;
         }
     }
