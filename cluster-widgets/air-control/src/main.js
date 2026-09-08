@@ -9,6 +9,13 @@ if (process.env.NODE_ENV === 'development') {
     import('./testing-utils.js');
 }
 
+// v2.4: erros de JS não capturados são invisíveis no logcat do head unit (filtra
+// INFO e nada roteia o console). Este handler joga qualquer erro de runtime para
+// console.error, que o app (WebChromeClient.onConsoleMessage) grava em WARN.
+window.onerror = function (message, source, line, col) {
+    console.error('[JS][onerror] ' + message + ' @ ' + (source || '') + ':' + line + ':' + col);
+};
+
 const appContainer = document.getElementById('app');
 let currentComponent = null;
 

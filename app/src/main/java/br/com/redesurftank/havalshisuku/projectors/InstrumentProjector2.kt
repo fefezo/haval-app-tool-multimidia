@@ -13,7 +13,9 @@ import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.util.Log
+import android.webkit.ConsoleMessage
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -353,6 +355,15 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
                         // Recria o WebView inteiro; se o card 1 (widget) estiver ativo, re-mostra.
                         Log.w("InstrumentProjector2", "WebView renderer gone (crash=${detail?.didCrash()}) — recriando webview")
                         recreateWebView()
+                        return true
+                    }
+                }
+                webChromeClient = object : WebChromeClient() {
+                    // v2.4: o logcat do head unit filtra INFO — console/erros do JS só
+                    // aparecem se roteados para WARN. Sem isto, um JS morto (ex.: o
+                    // SyntaxError das v2.0-v2.3) parecia "tudo saudável" no HEALTH.
+                    override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+                        Log.w("InstrumentProjector2", "[JS ${consoleMessage.messageLevel()}] ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
                         return true
                     }
                 }

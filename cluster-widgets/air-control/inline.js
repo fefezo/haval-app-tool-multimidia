@@ -28,7 +28,7 @@ function processHtml(htmlPath, outputPath) {
     
     if (fs.existsSync(fullCssPath)) {
       var cssContent = fs.readFileSync(fullCssPath, 'utf8');
-      htmlContent = htmlContent.replace(cssMatch[0], '<style>' + cssContent + '</style>');
+      htmlContent = htmlContent.replace(cssMatch[0], function () { return '<style>' + cssContent + '</style>'; });
       console.log('✅ CSS inlined:', cssPath);
     }
   }
@@ -43,10 +43,44 @@ function processHtml(htmlPath, outputPath) {
     
     if (fs.existsSync(fullJsPath)) {
       var jsContent = fs.readFileSync(fullJsPath, 'utf8');
-      htmlContent = htmlContent.replace(jsMatch[0], '<script>' + jsContent + '</script>');
+      // v2.4: escapa </script> cru. Um </script> dentro do JS faria o parser HTML
+      // fechar o bloco no meio do código — SyntaxError silencioso que matou o
+      // widget da v2.0 à v2.3 (app.html embutido com tags <script> cruas).
+      jsContent = jsContent.replace(/<\/script>/gi, '<\\/script>');
+      // Defesa 1: se o conteúdo ainda tiver tag <script>, o bundle está contaminado
+      // (cache/dist sujos do parcel) — aborta em vez de gerar APK quebrado.
+      if (/<script/gi.test(jsContent)) {
+        console.error('❌ JS contém tag <script crua — bundle contaminado. Limpe dist/ e .parcel-cache e rebuild (npm run build:night).');
+        process.exit(1);
+      }
+      // Defesa 2: checagem de sintaxe real sem executar — um SyntaxError aqui
+      // chegaria ao APK como widget morto invisível no logcat.
+      try {
+        new Function(jsContent);
+      } catch (e) {
+        console.error('❌ JS inlineado tem erro de sintaxe: ' + e.message + ' — abortando.');
+        process.exit(1);
+      }
+      // ROOT CAUSE v2.0-v2.3 (provado): replace com STRING como 2º argumento
+      // expande padrões $&, $', $`, $$ do conteúdo minificado — o bundle do
+      // parcel contém $& (substituições de regex do Chart.js/state), e cada
+      // $& vira o texto do match (a própria tag <script src=...>) no meio do
+      // JS → parser HTML fecha o <script> ali → SyntaxError → widget morto
+      // silencioso. O arquivo do bundle SEMPRE esteve limpo; a corrupção era
+      // gerada em memória por este replace. Função de substituição NÃO
+      // expande padrões $ — conteúdo literal, byte a byte.
+      htmlContent = htmlContent.replace(jsMatch[0], function () { return '<script>' + jsContent + '</script>'; });
       fs.unlinkSync(fullJsPath);
       console.log('✅ JS inlined:', jsPath);
     }
+  }
+
+  // Verificação final (v2.4): o HTML embutido não pode ter tags <script> além
+  // do wrapper único — tags cruas dentro do JS = widget morto silencioso.
+  var scriptTags = (htmlContent.match(/<script/gi) || []).length;
+  if (scriptTags !== 1) {
+    console.error('❌ HTML final tem ' + scriptTags + ' tags <script> (esperado 1) — abortando. Limpe dist/ e .parcel-cache e rebuild.');
+    process.exit(1);
   }
 
   // Salva o HTML processado
