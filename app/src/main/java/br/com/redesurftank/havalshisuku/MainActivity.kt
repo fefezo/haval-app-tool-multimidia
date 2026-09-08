@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeveloperMode
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
@@ -64,6 +65,7 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.SmartDisplay
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Weekend
 import androidx.compose.material.icons.filled.Window
@@ -3019,6 +3021,32 @@ fun DiagnosticsTab() {
     var restartDone by remember { mutableStateOf<String?>(null) }
     var restartError by remember { mutableStateOf<String?>(null) }
 
+    // v2.5: card de sondagem do DVR
+    var dvrStatus by remember { mutableStateOf<String?>(null) }
+    var dvrLastResult by remember { mutableStateOf<String?>(null) }
+    var dvrBusy by remember { mutableStateOf(false) }
+    var dvrParamA by remember { mutableStateOf("0") }
+    var dvrParamB by remember { mutableStateOf("0") }
+
+    // Dispara um comando DVR na central em background e mostra o resultado
+    val runDvrCommand: (String) -> Unit = { command ->
+        dvrBusy = true
+        dvrLastResult = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                val sm = ServiceManager.getInstance()
+                when (command) {
+                    "open" -> sm.dvrOpenApp()
+                    "close" -> sm.dvrCloseApp()
+                    "photo" -> sm.dvrCapturePhoto(dvrParamA.toIntOrNull() ?: 0, dvrParamB.toIntOrNull() ?: 0)
+                    else -> sm.dvrCaptureVideo(dvrParamA.toIntOrNull() ?: 0, dvrParamB.toIntOrNull() ?: 0)
+                }
+            }
+            dvrLastResult = result
+            dvrBusy = false
+        }
+    }
+
     // Espelho ao vivo do estado que o widget do cluster enxerga
     LaunchedEffect(Unit) {
         while (true) {
@@ -3204,6 +3232,204 @@ fun DiagnosticsTab() {
                     Text(
                         it,
                         color = Color(0xFFEF4444),
+                        fontSize = 14.sp
+                    )
+                }
+            }
+        }
+
+        // Seção: teste DVR (v2.5)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF13151A)
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "Teste DVR (gravação)",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Text(
+                    "Sondagem da interface DVR da central: descobre se o carro tem DVR " +
+                        "e como os comandos de foto/vídeo se comportam. Os parâmetros ainda " +
+                        "são desconhecidos — teste valores diferentes e observe o carro. " +
+                        "Cada clique também vai para o logcat (WARN) e sai no envio de logs.",
+                    color = Color(0xFFB0B8C4),
+                    fontSize = 14.sp
+                )
+
+                HorizontalDivider(color = Color(0xFF1D2430))
+
+                if (dvrBusy) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = AppColors.Primary
+                        )
+                        Text(
+                            "Consultando a central…",
+                            color = Color(0xFFB0B8C4),
+                            fontSize = 14.sp
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            dvrBusy = true
+                            dvrLastResult = null
+                            scope.launch {
+                                val snapshot = withContext(Dispatchers.IO) {
+                                    ServiceManager.getInstance().dvrStatusSnapshot()
+                                }
+                                dvrStatus = snapshot
+                                dvrBusy = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius)
+                    ) {
+                        Icon(
+                            Icons.Default.Videocam,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Descobrir suporte e estado do DVR", fontSize = 16.sp)
+                    }
+                }
+
+                dvrStatus?.let {
+                    Text(
+                        it,
+                        color = Color(0xFFEAA33E),
+                        fontSize = 13.sp
+                    )
+                }
+
+                Text(
+                    "Parâmetros de foto/vídeo (testar valores):",
+                    color = Color(0xFFB0B8C4),
+                    fontSize = 13.sp
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TextField(
+                        value = dvrParamA,
+                        onValueChange = { input ->
+                            dvrParamA = input.filter { ch -> ch.isDigit() || ch == '-' }
+                        },
+                        label = { Text("A") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF2A2F37),
+                            unfocusedContainerColor = Color(0xFF2A2F37),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color(0xFFB0B8C4),
+                            focusedIndicatorColor = Color(0xFF4A9EFF),
+                            unfocusedIndicatorColor = Color(0xFF3A3F47)
+                        )
+                    )
+                    TextField(
+                        value = dvrParamB,
+                        onValueChange = { input ->
+                            dvrParamB = input.filter { ch -> ch.isDigit() || ch == '-' }
+                        },
+                        label = { Text("B") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF2A2F37),
+                            unfocusedContainerColor = Color(0xFF2A2F37),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color(0xFFB0B8C4),
+                            focusedIndicatorColor = Color(0xFF4A9EFF),
+                            unfocusedIndicatorColor = Color(0xFF3A3F47)
+                        )
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        onClick = { runDvrCommand("photo") },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1D4ED8)
+                        ),
+                        shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius)
+                    ) {
+                        Icon(
+                            Icons.Default.PhotoCamera,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Foto", fontSize = 15.sp)
+                    }
+                    Button(
+                        onClick = { runDvrCommand("video") },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFDC2626)
+                        ),
+                        shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius)
+                    ) {
+                        Icon(
+                            Icons.Default.Videocam,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Vídeo", fontSize = 15.sp)
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        onClick = { runDvrCommand("open") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius)
+                    ) {
+                        Text("Abrir app DVR", fontSize = 14.sp)
+                    }
+                    Button(
+                        onClick = { runDvrCommand("close") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius)
+                    ) {
+                        Text("Fechar app", fontSize = 14.sp)
+                    }
+                }
+
+                dvrLastResult?.let {
+                    Text(
+                        it,
+                        color = if (it.startsWith("erro") || it.contains("falha") || it.contains("não disponível")) {
+                            Color(0xFFEF4444)
+                        } else {
+                            Color(0xFF4ADE80)
+                        },
                         fontSize = 14.sp
                     )
                 }

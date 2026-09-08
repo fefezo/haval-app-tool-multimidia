@@ -1451,6 +1451,79 @@ public class ServiceManager {
         return isMaxAcActive;
     }
 
+    // v2.5: superfície de sondagem do DVR (card "Teste DVR" na aba Diagnóstico).
+    // A interface IDvr já era obtida no initializeServices (queryBinder 8) para o AVM;
+    // estes wrappers expõem estado e comandos que ainda não têm consumidor. Os
+    // parâmetros de capturePhoto/captureVideo são desconhecidos — o card permite
+    // testar valores no carro; cada chamada vai para o logcat em WARN (o head unit
+    // filtra INFO) e aparece no envio de logs do Diagnóstico.
+    public String dvrStatusSnapshot() {
+        try {
+            if (dvr == null) {
+                Log.w(TAG, "[DVR] binder IDvr não disponível (queryBinder 8 falhou?)");
+                return "binder DVR não disponível";
+            }
+            String snapshot = "isDvrSupported=" + dvr.isDvrSupported()
+                + " | captureStatus=" + dvr.getCaptureStatus()
+                + " | currentMode=" + dvr.getCurrentMode()
+                + " | inDvrApp=" + dvr.isInDvrApp()
+                + " | inPreviewView=" + dvr.isInPreviewView();
+            Log.w(TAG, "[DVR] estado: " + snapshot);
+            return snapshot;
+        } catch (RemoteException e) {
+            Log.w(TAG, "[DVR] falha ao ler estado", e);
+            return "erro ao ler estado: " + e.getMessage();
+        }
+    }
+
+    public String dvrOpenApp() {
+        try {
+            if (dvr == null) return "binder DVR não disponível";
+            dvr.startBeanDvr();
+            Log.w(TAG, "[DVR] startBeanDvr() enviado");
+            return "startBeanDvr enviado — o app DVR deve abrir na tela";
+        } catch (RemoteException e) {
+            Log.w(TAG, "[DVR] falha no startBeanDvr", e);
+            return "erro: " + e.getMessage();
+        }
+    }
+
+    public String dvrCloseApp() {
+        try {
+            if (dvr == null) return "binder DVR não disponível";
+            dvr.closeBeanDvr();
+            Log.w(TAG, "[DVR] closeBeanDvr() enviado");
+            return "closeBeanDvr enviado";
+        } catch (RemoteException e) {
+            Log.w(TAG, "[DVR] falha no closeBeanDvr", e);
+            return "erro: " + e.getMessage();
+        }
+    }
+
+    public String dvrCapturePhoto(int paramA, int paramB) {
+        try {
+            if (dvr == null) return "binder DVR não disponível";
+            dvr.capturePhoto(paramA, paramB);
+            Log.w(TAG, "[DVR] capturePhoto(" + paramA + ", " + paramB + ") enviado");
+            return "capturePhoto(" + paramA + ", " + paramB + ") enviado";
+        } catch (RemoteException e) {
+            Log.w(TAG, "[DVR] falha no capturePhoto(" + paramA + ", " + paramB + ")", e);
+            return "erro: " + e.getMessage();
+        }
+    }
+
+    public String dvrCaptureVideo(int paramA, int paramB) {
+        try {
+            if (dvr == null) return "binder DVR não disponível";
+            dvr.captureVideo(paramA, paramB);
+            Log.w(TAG, "[DVR] captureVideo(" + paramA + ", " + paramB + ") enviado");
+            return "captureVideo(" + paramA + ", " + paramB + ") enviado";
+        } catch (RemoteException e) {
+            Log.w(TAG, "[DVR] falha no captureVideo(" + paramA + ", " + paramB + ")", e);
+            return "erro: " + e.getMessage();
+        }
+    }
+
     // v1.8: nao dispara mais direto ao ligar a ignicao — aguarda 3s e confirma a
     // leitura (o sensor pode estar estabilizando), com clamp de plausibilidade.
     private void enableMaxAcOn() {
