@@ -441,6 +441,10 @@ fun BasicSettingsTab(section: String) {
     // H6: cycle_mode 1 = ar externo, 0 = interna (invertido vs padrão AOSP)
     var startupAcCycle by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.key, "1") ?: "1") }
     var startupAcFan by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.STARTUP_AC_FAN_SPEED.key, 0)) }
+    // v2.6: ligar o ar ao dar partida e estado do compressor. Antes o card so ajustava
+    // os valores — com o ar desligado na partida nada mudava na tela do carro.
+    var startupAcPower by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.STARTUP_AC_POWER.key, false)) }
+    var startupAcCompressor by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.STARTUP_AC_COMPRESSOR.key, true)) }
     // Perfil "Modo padrão do A/C" (v2.0): temperaturas independentes por lado,
     // ventilação, circulação e direção do ar. Mesmo armazenamento do AC de partida
     // (0,5 °C por ponto de slider, string "22.0").
@@ -449,6 +453,7 @@ fun BasicSettingsTab(section: String) {
     var defaultAcFan by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.DEFAULT_AC_FAN_SPEED.key, 3).coerceIn(1, 7)) }
     var defaultAcCycle by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.DEFAULT_AC_CYCLE_MODE.key, "1") ?: "1") }
     var defaultAcBlower by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.DEFAULT_AC_BLOWER_MODE.key, "") ?: "") }
+    var defaultAcCompressor by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.DEFAULT_AC_COMPRESSOR.key, true)) }
     var closeWindowsOnSpeed by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLOSE_WINDOWS_ON_SPEED.key, false)) }
     var closeSunroofOnSpeed by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.CLOSE_SUNROOF_ON_SPEED.key, false)) }
     var speedThreshold by remember { mutableFloatStateOf(prefs.getFloat(SharedPreferencesKeys.SPEED_THRESHOLD.key, 15f)) }
@@ -1184,6 +1189,54 @@ fun BasicSettingsTab(section: String) {
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Ao dar partida", color = Color.White, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StartupAcOptionButton(
+                            label = "Ligar o A/C",
+                            selected = startupAcPower,
+                            onClick = {
+                                startupAcPower = true
+                                prefs.edit { putBoolean(SharedPreferencesKeys.STARTUP_AC_POWER.key, true) }
+                            }
+                        )
+                        StartupAcOptionButton(
+                            label = "Não mexer",
+                            selected = !startupAcPower,
+                            onClick = {
+                                startupAcPower = false
+                                prefs.edit { putBoolean(SharedPreferencesKeys.STARTUP_AC_POWER.key, false) }
+                            }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Compressor (A/C)", color = Color.White, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StartupAcOptionButton(
+                            label = "Ligado",
+                            selected = startupAcCompressor,
+                            onClick = {
+                                startupAcCompressor = true
+                                prefs.edit { putBoolean(SharedPreferencesKeys.STARTUP_AC_COMPRESSOR.key, true) }
+                            }
+                        )
+                        StartupAcOptionButton(
+                            label = "Desligado",
+                            selected = !startupAcCompressor,
+                            onClick = {
+                                startupAcCompressor = false
+                                prefs.edit { putBoolean(SharedPreferencesKeys.STARTUP_AC_COMPRESSOR.key, false) }
+                            }
+                        )
+                    }
+                    Text(
+                        "O compressor só é alterado quando a opção acima está em \"Ligar o A/C\".",
+                        color = AppColors.TextSecondary,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         "Direção: valores do protocolo GWM — confira no painel qual combinação aparece e ajuste se necessário.",
                         color = AppColors.TextSecondary,
@@ -1193,7 +1246,7 @@ fun BasicSettingsTab(section: String) {
             ),
             SettingItem(
                 title = "Modo padrão do A/C",
-                description = "Perfil com temperatura do motorista e do passageiro independentes, velocidade da ventilação, circulação e direção do ar. Ativa o A/C com essas configurações de qualquer estado atual — pelo botão abaixo ou pela tela de A/C do cluster, na zona ao lado da circulação interna (focar e pressionar cima/baixo).",
+                description = "Perfil com temperatura do motorista e do passageiro independentes, velocidade da ventilação, circulação, direção do ar e compressor. Ativa o A/C com essas configurações de qualquer estado atual — pelo botão abaixo, pela tela de A/C do cluster (zona ao lado da circulação interna: focar e pressionar cima/baixo) ou por um botão do volante com a ação \"Aplicar o modo padrão do A/C\".",
                 checked = true,
                 onCheckedChange = {},
                 hideSwitch = true,
@@ -1275,6 +1328,27 @@ fun BasicSettingsTab(section: String) {
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                     Spacer(modifier = Modifier.height(8.dp))
+                    Text("Compressor (A/C)", color = Color.White, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StartupAcOptionButton(
+                            label = "Ligado",
+                            selected = defaultAcCompressor,
+                            onClick = {
+                                defaultAcCompressor = true
+                                prefs.edit { putBoolean(SharedPreferencesKeys.DEFAULT_AC_COMPRESSOR.key, true) }
+                            }
+                        )
+                        StartupAcOptionButton(
+                            label = "Desligado",
+                            selected = !defaultAcCompressor,
+                            onClick = {
+                                defaultAcCompressor = false
+                                prefs.edit { putBoolean(SharedPreferencesKeys.DEFAULT_AC_COMPRESSOR.key, false) }
+                            }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
                     Button(
                         onClick = {
                             ServiceManager.getInstance().applyDefaultAcMode()
@@ -1291,7 +1365,7 @@ fun BasicSettingsTab(section: String) {
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Aplicado por cima do estado atual: liga o A/C, encerra secagem e MAX AUTO e restaura estas configurações.",
+                        "Aplicado por cima do estado atual: liga o A/C, ajusta o compressor, encerra secagem e MAX AUTO e restaura estas configurações.",
                         color = AppColors.TextSecondary,
                         fontSize = 12.sp
                     )

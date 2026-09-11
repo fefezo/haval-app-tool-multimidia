@@ -10,7 +10,8 @@ enum class SteeringWheelCustomActionType(val key: String, val description: Strin
     OPEN_APP("open_app", "Abrir aplicativo de sua escolha."),
     TOGGLE_CAMERA_AVM("toggle_avm", "Alternar o modo de desabilitar a camera com o carro parado."),
     OPEN_AVM_ONCE("open_avm_once", "Abrir a camera sem interrupções."),
-    START_DRYING_MODE("start_drying_mode", "Iniciar secagem do ar-condicionado.")
+    START_DRYING_MODE("start_drying_mode", "Iniciar secagem do ar-condicionado."),
+    APPLY_DEFAULT_AC("apply_default_ac", "Aplicar o modo padrão do A/C.")
     ;
 
     companion object {
