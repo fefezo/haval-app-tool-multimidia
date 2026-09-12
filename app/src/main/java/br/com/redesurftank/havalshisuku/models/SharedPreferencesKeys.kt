@@ -50,6 +50,12 @@ enum class SharedPreferencesKeys(val key: String, val description: String) {
     ADVANCE_USE("advanceUse", "Uso avançado"),
     CURRENT_USER("currentUser", "Usuário atual"),
     LAST_CLUSTER_AC_CONFIG("lastClusterAcConfig", "Última configuração do ar-condicionado do cluster"),
+    ENABLE_SHUTDOWN_DRYING("enableShutdownDrying", "Secar o ar-condicionado ao desligar o veículo"),
+    SHUTDOWN_DRYING_DURATION("shutdownDryingDuration", "Duração da secagem ao desligar (em segundos)"),
+    // As duas abaixo não aparecem na UI: existem só para o diagnóstico saber, no log,
+    // se a central perdeu energia no meio de um ciclo de secagem.
+    SHUTDOWN_DRYING_PENDING("shutdownDryingPending", "Secagem ao desligar em andamento (interno)"),
+    SHUTDOWN_DRYING_STARTED_AT("shutdownDryingStartedAt", "Início da secagem ao desligar (interno)"),
     DISABLE_BLUETOOTH_ON_POWER_OFF("disableBluetoothOnPowerOff", "Desativar Bluetooth ao desligar o veículo"),
     DISABLE_HOTSPOT_ON_POWER_OFF("disableHotspotOnPowerOff", "Desativar ponto de acesso ao desligar o veículo"),
     BLUETOOTH_STATE_ON_POWER_OFF("bluetoothStateOnPowerOff", "Estado do Bluetooth ao desligar o veículo"),

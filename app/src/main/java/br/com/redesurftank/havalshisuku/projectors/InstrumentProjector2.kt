@@ -8,6 +8,7 @@ import android.graphics.Outline
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Display
 import android.view.View
 import android.view.ViewOutlineProvider
@@ -53,13 +54,22 @@ class InstrumentProjector2(outerContext: Context, display: Display) : BaseProjec
     private val healthLogRunnable = object : Runnable {
         override fun run() {
             try {
+                // v2.7: `elapsed` de propósito. Esta linha roda na main thread, num
+                // Handler próprio, e é o ÚNICO sinal de vida independente do
+                // backgroundHandler do ServiceManager. Com o carro desligado, ela é o
+                // que responde se a central continua viva e por quanto tempo — e o
+                // relógio monotônico junto permite cruzar com as linhas [SECAGEM],
+                // que usam o mesmo relógio.
                 Log.w(
                     "InstrumentProjector2",
-                    "HEALTH isShowing=${isShowing} " +
+                    "HEALTH elapsed=${SystemClock.elapsedRealtime()} " +
+                        "isShowing=${isShowing} " +
                         "card=${ServiceManager.getInstance().getClusterCardView()} " +
                         "mainScreenOn=${ServiceManager.getInstance().isMainScreenOn} " +
                         "rootVisible=${root.isVisible} circularVisible=${webContainer?.isVisible} " +
-                        "webView=${if (webView == null) "null" else "alive"} loaded=${webViewsLoaded[webView] == true}"
+                        "webView=${if (webView == null) "null" else "alive"} loaded=${webViewsLoaded[webView] == true} " +
+                        "drying=${ServiceManager.getInstance().isDryingModeActive} " +
+                        "shutdownDrying=${ServiceManager.getInstance().isShutdownDryingActive}"
                 )
             } catch (t: Throwable) {
                 Log.w("InstrumentProjector2", "HEALTH falhou ao coletar estado", t)

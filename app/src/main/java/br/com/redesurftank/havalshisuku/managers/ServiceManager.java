@@ -88,6 +88,7 @@ public class ServiceManager {
             CarConstants.CAR_EV_INFO_ENERGY_OUTPUT_PERCENTAGE,
             CarConstants.CAR_EV_INFO_POWER_BATTERY_VOLTAGE,
             CarConstants.CAR_FRS_SETTING_DISTRACTION_DETECTION_ENABLE,
+            CarConstants.CAR_HVAC_AC_ENABLE,
             CarConstants.CAR_HVAC_ANION_ENABLE,
             CarConstants.CAR_HVAC_BLOWER_MODE,
             CarConstants.CAR_HVAC_CYCLE_MODE,
@@ -203,12 +204,67 @@ public class ServiceManager {
     private Runnable maxAcConfirmRunnable;
     // v1.8: histerese de falsos positivos nos primeiros 60s apos disparo
     private long maxAcActivatedAt = 0L;
-    private final Map<String, String> previousDryingState = new HashMap<>();
-    private boolean isDryingModeActive = false;
-    private int dryingModeRemainingSeconds = 0;
-    private Runnable dryingModeTimeoutRunnable;
-    private Runnable dryingModeTickRunnable;
+    // ---------------------------------------------------------------------------
+    // v2.7: secagem. Um unico motor, dois sabores (ver DryingKind).
+    //
+    // INVARIANTE: todo o estado de secagem e lido e escrito APENAS dentro de
+    // synchronized (dryingLock), e NENHUMA chamada de binder (getUpdatedData /
+    // updateData) nem callback de listener roda com o lock na mao. Os acessores
+    // publicos leem os espelhos volatile — ver publishDryingFlags() para o motivo.
+    // ---------------------------------------------------------------------------
+    private final Object dryingLock = new Object();
+    private final Map<String, String> dryingSnapshot = new HashMap<>();  // sob dryingLock
+    private DryingKind dryingKind = DryingKind.NONE;                      // sob dryingLock
+    private int dryingRemainingSeconds = 0;                               // sob dryingLock
+    private long dryingDeadlineElapsed = 0L;                              // sob dryingLock
+    private Runnable dryingTickRunnable;                                  // sob dryingLock
+    // Espelho do dryingKind para leitura sem lock, num UNICO volatile. Dois booleanos
+    // separados deixariam um leitor ver "ativo=true, desligamento=false" — e o ramo OFF
+    // trata esse par como "e a manual, pode cancelar", matando um ciclo de desligamento
+    // recem-reservado. Uma referencia de enum e escrita de uma vez so: nunca ha par
+    // inconsistente.
+    private volatile DryingKind dryingKindFlag = DryingKind.NONE;
+
+    private enum DryingKind {
+        NONE,
+        /** Volante / menu do cluster. Cancelada, restaura o power anterior. */
+        MANUAL,
+        /** Automatica no desligar. NUNCA restaura o power anterior: o carro esta desligado. */
+        SHUTDOWN
+    }
+
     private static final int DRYING_MODE_DURATION_SECONDS = 120;
+    private static final int SHUTDOWN_DRYING_DURATION_DEFAULT = 60;
+    private static final int SHUTDOWN_DRYING_MIN_SECONDS = 15;
+    private static final int SHUTDOWN_DRYING_MAX_SECONDS = 300;
+    private static final long SEAT_VENT_SUPPRESS_GRACE_MS = 15_000L;
+
+    // v2.7: deteccao de borda do ready-state. Tocado pelo pool do binder E pela main
+    // thread (DispatchAllDatasReceiver) — synchronized curto, so memoria, zero I/O.
+    private final Object readyStateLock = new Object();
+    private String lastReadyStateValue = null;
+    // true = ja vimos uma ignicao ligada NESTA vida do processo. Sem isso, o
+    // dispatchAllData() do init (com o carro parado) cairia no ramo OFF e dispararia
+    // uma secagem fantasma a cada inicializacao do servico.
+    private volatile boolean sawLiveIgnitionThisProcess = false;
+    // true = o ciclo de secagem DESTA ignicao ja foi gasto. O barramento pode repetir
+    // o OFF a vontade: nada reinicia ate ver um ready-state ON de verdade.
+    private volatile boolean shutdownDryingConsumedThisIgnition = false;
+    // true = o compressor rodou nesta viagem. So vale como gatilho quem molhou o
+    // evaporador; sem compressor nao ha agua para secar.
+    private volatile boolean acCompressorRanThisIgnition = false;
+    // Janela em que um POWER=1 vindo da secagem NAO deve ligar a ventilacao do banco.
+    private volatile long suppressSeatVentBoostUntilElapsed = 0L;
+    // Diagnostico H3: so para logar a transicao do engine_state uma vez.
+    private volatile String lastEngineStateValue = null;
+    // Ciclo abandonado no restart DESTE processo com o perfil ja na rua: guarda o snapshot
+    // para reaplicar quando a conexao voltar. De proposito NAO vai para o disco: em disco,
+    // uma perda de energia de verdade (o caso que estamos medindo) seria indistinguivel de
+    // um restart do servico, e ai a correcao apagaria a evidencia do H5. Em memoria = so o
+    // caso que sabemos que aconteceu. Sob dryingLock.
+    private Map<String, String> orphanedDryingSnapshot = null;
+    private DryingKind orphanedDryingKind = DryingKind.NONE;
+
     // v1.9: reaplica os defaults de startup apos o modulo HVAC terminar de acordar
     private Runnable startupDefaultsRunnable;
     // v2.6: quantas reaplicacoes ainda cabem neste ciclo de ignicao (ver scheduleStartupDefaults).
@@ -292,6 +348,14 @@ public class ServiceManager {
         handlerThread = new HandlerThread("ServiceManagerHandlerThread");
         handlerThread.start();
         backgroundHandler = new Handler(handlerThread.getLooper());
+        // v2.7: o handler acima ACABOU de ser recriado (quitSafely no cleanup, que roda
+        // quando o binder do Shizuku morre sem o processo morrer). O tick da secagem
+        // antiga morava no looper velho e nunca mais rodaria: a secagem ficaria "ativa"
+        // para a UI, sem ninguem para encerra-la. Zera o motor para o estado nao mentir.
+        resetDryingStateIfOrphaned();
+        // v2.7: e se a central perdeu energia no meio de um ciclo de desligamento, este
+        // e o primeiro lugar onde da para contar isso (H5).
+        reportInterruptedShutdownDrying("initializeServices");
         if (!Shizuku.pingBinder()) {
             Log.e(TAG, "Shizuku not available");
             return false;
@@ -514,6 +578,10 @@ public class ServiceManager {
                     }
                 }
             }, wifiFilter);
+            // v2.7: aqui a conexao com o vehicle control esta viva de novo, entao os comandos
+            // tem para onde ir. Desfaz o ciclo que ficou orfao no restart — nada sai daqui se
+            // nao houver um ciclo abandonado.
+            repairOrphanedDrying();
             dispatchAllData();
             // v1.9: volume e AC padrao foram movidos para o handler de ready-state ON
             // (applyStartupDefaults) — o init so roda quando o servico sobe, entao com a
@@ -686,11 +754,8 @@ public class ServiceManager {
                 Log.w(TAG, "Steering wheel: modo padrão do A/C aplicado");
                 break;
             case START_DRYING_MODE:
-                if (isDryingModeActive) {
-                    cancelDryingMode();
-                } else {
-                    startDryingMode();
-                }
+                // startDryingMode() ja e um toggle: cancela se houver secagem ativa.
+                startDryingMode();
                 Log.w(TAG, "Drying mode toggled via steering wheel button");
                 break;
         }
@@ -921,6 +986,26 @@ public class ServiceManager {
         return new HashMap<>(dataCache);
     }
 
+    /**
+     * Como updateData, mas devolve se o comando foi REALMENTE entregue ao binder. Existe para
+     * a escrita de power que encerra a secagem: e a diferenca entre "mandei o POWER=0" e "o
+     * modulo ainda acha que esta secando" — e essa diferenca decide se a flag de pendencia em
+     * disco pode ser apagada ou se ela e a unica evidencia que sobra para o diagnostico.
+     */
+    private boolean updateDataChecked(String key, String value) {
+        if (controlService == null) {
+            Log.e(TAG, "ControlService not initialized");
+            return false;
+        }
+        try {
+            controlService.request("cmd.common.request.set", key, value);
+            return true;
+        } catch (RemoteException e) {
+            Log.e(TAG, "Error updating data", e);
+            return false;
+        }
+    }
+
     private void OnDataChanged(String key, String value) {
         Intent broadcastIntent = new Intent("android.intent.haval." + key);
         broadcastIntent.putExtra("value", value);
@@ -1006,15 +1091,52 @@ public class ServiceManager {
                 } else {
                     delayNextAVM = false;
                 }
+            } else if (key.equals(CarConstants.CAR_HVAC_AC_ENABLE.getValue())) {
+                // v2.7: so o compressor molha o evaporador. A flag e pegajosa pela viagem
+                // inteira — o compressor liga e desliga varias vezes numa mesma viagem, e
+                // qualquer uma delas basta para ter agua para secar. Ela so e zerada no fim
+                // da viagem (ramo OFF do ready-state), nunca no meio dela.
+                //
+                // E so ARMA com a ignicao ligada. Com o carro desligado o modulo continua
+                // reportando o estado do botao do A/C (esse estado nao zera ao desligar), e
+                // armar ali faria a viagem seguinte — sem A/C nenhum — secar por causa de uma
+                // notificacao do desligamento anterior.
+                if (value.equals("1") && !isReadyStateOffNow()) {
+                    acCompressorRanThisIgnition = true;
+                    Log.w(TAG, "[SECAGEM] compressor ligou nesta viagem — secagem ao desligar fica armada");
+                }
+            } else if (key.equals(CarConstants.CAR_BASIC_ENGINE_STATE.getValue())) {
+                // v2.7 (diagnostico H3): qual dos dois chega primeiro no desligamento, o
+                // ready-state ou o engine_state? So loga transicao, para nao virar spam.
+                if (!value.equals(lastEngineStateValue)) {
+                    lastEngineStateValue = value;
+                    Log.w(TAG, "[DESLIG] engine_state=" + value + " elapsed=" + SystemClock.elapsedRealtime());
+                }
             } else if (key.equals(CarConstants.CAR_BASIC_DRIVING_READY_STATE.getValue())) {
-                if ((value.equals("-1") || value.equals("0"))) {
+                final boolean readyOff = isReadyStateOff(value);
+                final boolean edge;
+                String previous;
+                // synchronized curto, so memoria, zero I/O: este ramo roda na thread de
+                // callback do vehicle control E na main thread (DispatchAllDatasReceiver),
+                // as vezes ao mesmo tempo. Sem deteccao de borda, o "-1" seguido de "0" do
+                // MESMO desligamento dispararia dois ciclos.
+                synchronized (readyStateLock) {
+                    previous = lastReadyStateValue;
+                    edge = (previous == null) || (isReadyStateOff(previous) != readyOff);
+                    lastReadyStateValue = value;
+                }
+                if (readyOff) {
                     // v1.8: carro desligou — cancela qualquer confirmacao de Max AC pendente
                     cancelPendingMaxAcConfirmation();
                     // v1.9: automacoes de HVAC encerram no desligar. Restaurar agora, com o
                     // modulo ainda acordado, evita o residual no proximo start (ex.: secagem
                     // interrompida deixava o AC em 32°C ao religar — o restore so rodava com
                     // o carro desligado e o comando se perdia).
-                    if (isDryingModeActive) {
+                    //
+                    // v2.7: isso continua valendo para a secagem MANUAL, mas nao para a de
+                    // desligamento — o trabalho dela e justamente rodar DAQUI PARA FRENTE.
+                    // A manual e encerrada dentro do startShutdownDrying, ja fora desta thread.
+                    if (isDryingModeActive() && !isShutdownDryingActive()) {
                         cancelDryingMode();
                     }
                     if (isMaxAcActive) {
@@ -1022,6 +1144,25 @@ public class ServiceManager {
                     }
                     cancelStartupDefaultsRetries();
                     applyStartupDefaultsOnNextReadyOn = true;
+                    // v2.7: posta a secagem ANTES do bluetooth/hotspot de proposito. Aqui
+                    // so decide e posta (nenhum comando de HVAC sai desta thread), mas cada
+                    // segundo conta: a intencao do v1.9 e falar com o modulo HVAC enquanto
+                    // ele ainda esta acordado, e desligar bluetooth/ponto de acesso via
+                    // Shizuku pode levar bons segundos.
+                    maybeStartShutdownDrying(edge, value);
+                    // A memoria do compressor e POR VIAGEM, e o fim da viagem e AQUI — nao na
+                    // borda ON. O maybeStartShutdownDrying acima ja leu a flag para decidir;
+                    // daqui para frente ela pertence a proxima viagem.
+                    //
+                    // Zerar na borda ON seria uma corrida contra a ordem de entrega das
+                    // chaves: o modulo empurra o estado chave por chave (IListener.onDataChanged)
+                    // na ordem que ele quiser, entao numa viagem que comeca com o A/C JA ligado
+                    // o ac_enable=1 pode chegar ANTES do ready-state, e o zero cego apagaria a
+                    // viagem inteira — a secagem nunca dispararia. Zerando no OFF, qualquer
+                    // ordem funciona: a flag so e armada depois, durante a viagem seguinte.
+                    if (edge) {
+                        acCompressorRanThisIgnition = false;
+                    }
                     boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
                     boolean currentBluetoothState = currentBluetoothState();
                     if (currentBluetoothState && disableBluetoothOnPowerOff) {
@@ -1033,6 +1174,36 @@ public class ServiceManager {
                         disableWifiTether();
                     }
                 } else {
+                    // v2.7: carro religou. Encerra a secagem de desligamento ANTES dos
+                    // defaults de startup, para a ordem ser determinística: o POWER=0 da
+                    // secagem sai primeiro e o "A/C ao ligar" / Max AC passam a ser donos
+                    // do HVAC. Os envios aqui sao fire-and-forget, entao nao custa nada
+                    // estar na thread do binder.
+                    if (isShutdownDryingActive()) {
+                        Log.w(TAG, "[SECAGEM] carro religou — encerrando a secagem de desligamento");
+                        requestFinish(false, "carro religou");
+                    }
+                    // Desta borda em diante existe uma ignicao viva neste processo, e o
+                    // ciclo de secagem dela esta por gastar.
+                    //
+                    // Tudo aqui e por BORDA: este ramo roda a CADA entrega do ready-state
+                    // (todo dispatchAllData reenvia a chave), nao so quando o carro liga de
+                    // fato. Sem a guarda, uma entrega repetida no meio da viagem re-armaria o
+                    // ciclo de secagem ja gasto desta ignicao e ele dispararia duas vezes.
+                    //
+                    // A flag do compressor e RE-DERIVADA aqui, e nao zerada: e a borda que
+                    // define a viagem nova, e o valor que interessa e o de agora. Zerar
+                    // apagaria o ac_enable=1 que o modulo pode ter empurrado um instante ANTES
+                    // desta borda (ele escolhe a ordem dos pushes) — e a viagem inteira ficaria
+                    // sem memoria de compressor, que e o defeito que o usuario ve como "nao
+                    // seca nunca". No meio da viagem a flag continua so sendo ARMADA (a borda
+                    // impede re-derivacao), porque o compressor liga e desliga varias vezes e
+                    // desarmar no meio perderia a agua que ja esta no evaporador.
+                    if (edge) {
+                        sawLiveIgnitionThisProcess = true;
+                        shutdownDryingConsumedThisIgnition = false;
+                        rederiveCompressorFlag();
+                    }
                     boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
                     boolean bluetoothStateOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false);
                     if (disableBluetoothOnPowerOff && bluetoothStateOnPowerOff && !currentBluetoothState()) {
@@ -1050,7 +1221,19 @@ public class ServiceManager {
                     }
                 }
             } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && value.equals("1") && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
-                updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "3");
+                // v2.7: escrever power_mode=1 e o que liga a secagem. Sem esta guarda, o
+                // banco do motorista iria para o nivel 3 com o carro desligado, por um
+                // minuto, por um motivo que nao tem nada a ver com secar o evaporador.
+                // A janela e por TEMPO e nao por dryingKind de proposito: esta notificacao
+                // e assincrona e pode chegar depois de o ciclo terminar, quando o kind ja e
+                // NONE — uma guarda por kind deixaria passar um vent-3 orfao, e a janela
+                // por tempo pega os dois casos. O lado do POWER=0 NAO e suprimido: e a rede
+                // que garante a volta do banco ao zero.
+                if (SystemClock.elapsedRealtime() < suppressSeatVentBoostUntilElapsed) {
+                    Log.w(TAG, "[SECAGEM] ventilacao do banco nao ligada (POWER=1 da secagem)");
+                } else {
+                    updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "3");
+                }
             } else if (key.equals(CarConstants.CAR_HVAC_POWER_MODE.getValue()) && value.equals("0") && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.getKey(), false)) {
                 updateData(CarConstants.CAR_COMFORT_SETTING_DRIVER_SEAT_VENTILATION_LEVEL.getValue(), "0");
             } else if (key.equals(CarConstants.CAR_BASIC_INSIDE_TEMP.getValue()) && sharedPreferences.getBoolean(SharedPreferencesKeys.ENABLE_MAX_AC_ON_UNLOCK.getKey(), true)) {
@@ -1110,6 +1293,18 @@ public class ServiceManager {
             }
         }
         if (!sharedPreferences.getBoolean(SharedPreferencesKeys.SET_STARTUP_AC.getKey(), false)) return;
+        // v2.7: a secagem de desligamento tem prioridade absoluta sobre automacao. Nao e
+        // simetria com o Max AC abaixo: e uma corrida real e pre-existente. As
+        // retentativas do startup sao postadas em 4s e 9s (postStartupDefaultsRetry), e o
+        // `startupDefaultsRetriesLeft--` acontece ANTES da atribuicao do runnable — entao
+        // um cancelStartupDefaultsRetries() vindo do ramo OFF (outra thread) pode cancelar
+        // o runnable antigo e o novo ser postado assim mesmo. Uma retentativa sobrevivente
+        // ao desligamento sobrescreveria FAN/TEMPS por cima da secagem. A guarda torna a
+        // corrida inofensiva sem precisar consertar a ordem das duas linhas.
+        if (isShutdownDryingActive()) {
+            Log.w(TAG, "Startup AC ignorado: secagem de desligamento em andamento");
+            return;
+        }
         // Max AC em andamento domina o HVAC — nao briga com ele; o smoothing do Max AC
         // restaura o snapshot do usuario ao terminar. Log em WARN de proposito: o head
         // unit filtra INFO, e sem isso o "AC ao ligar" parecia simplesmente nao existir
@@ -1341,145 +1536,717 @@ public class ServiceManager {
 
     }
 
+    /** "Desligado" no ready-state: tanto o -1 (tela apagando) quanto o 0. */
+    private static boolean isReadyStateOff(String value) {
+        return "-1".equals(value) || "0".equals(value);
+    }
+
     /**
-     * Drying mode: blower only (compressor off), HI temperature, fan max and fresh air
-     * (outside circulation) for 2 minutes, then the HVAC is turned off.
-     * Used to dry the evaporator and prevent mold after using the AC.
+     * Zera o motor sem tocar no HVAC. Usado quando o handler antigo morreu e o servico
+     * esta subindo de novo: o cleanup roda antes de tudo, inclusive de o veiculo
+     * reconectar, entao aqui um comando de HVAC nao teria para onde ir.
+     *
+     * O ciclo e guardado inteiro (snapshot + kind) para ser desfeito depois, com a conexao
+     * viva: ele ja tinha mandado POWER=1 / fan 7 / 32 C e ninguem mais vai mandar o fim.
+     * Sao os DOIS sabores — a manual tambem pode ter comecado com o carro ja desligado
+     * (volante / menu do cluster na central acordada em acessorio), e nesse caso abandonar
+     * sem desfazer deixaria a ventilacao ligada sem ignicao, para sempre.
+     *
+     * Isto NAO se confunde com perda de energia de verdade: se a central morreu, o processo
+     * morre junto e este codigo nunca roda — a proxima subida encontra dryingKind == NONE e
+     * so a flag em disco, que vira log (ver reportInterruptedShutdownDrying). Essa medicao
+     * continua limpa: so o abandono DENTRO de um processo vivo dispara a correcao.
+     */
+    private void resetDryingStateIfOrphaned() {
+        synchronized (dryingLock) {
+            if (dryingKind == DryingKind.NONE) return;
+            Log.w(TAG, "[SECAGEM] " + dryingKind
+                    + " orfa no restart do servico — motor zerado, estado sera reaplicado"
+                    + " quando a conexao voltar");
+            orphanedDryingSnapshot = new HashMap<>(dryingSnapshot);
+            orphanedDryingKind = dryingKind;
+            clearDryingStateLocked();
+        }
+    }
+
+    /**
+     * Desfaz, com a conexao ja viva, o ciclo abandonado no restart. Roda no
+     * initializeServices logo ANTES do dispatchAllData: o ready-state ON que ele despacha
+     * pode chamar applyStartupDefaults, e o "A/C ao ligar" deve ser o ultimo a escrever
+     * nesta ignicao, nao a correcao.
+     */
+    private void repairOrphanedDrying() {
+        final Map<String, String> snapshot;
+        final DryingKind kind;
+        synchronized (dryingLock) {
+            if (orphanedDryingSnapshot == null) return;
+            snapshot = orphanedDryingSnapshot;
+            kind = orphanedDryingKind;
+            orphanedDryingSnapshot = null;
+            orphanedDryingKind = DryingKind.NONE;
+        }
+        // Com o carro DESLIGADO o power tem de terminar em 0: deixar a ventilacao ligada sem
+        // ignicao e o unico desfecho inaceitavel. Com o carro ligado, o estado anterior e
+        // legitimo (a secagem manual cancela restaurando o que estava antes).
+        final boolean vehicleOff = isReadyStateOffNow();
+        Log.w(TAG, "[SECAGEM] reaplicando estado por cima do ciclo " + kind + " orfao (carro "
+                + (vehicleOff ? "desligado" : "ligado") + ") elapsed=" + SystemClock.elapsedRealtime());
+        writeSnapshotAndPower(snapshot, kind, (kind == DryingKind.MANUAL) && !vehicleOff);
+    }
+
+    /** Zera o motor. O chamador DEVE estar sob dryingLock. Nao toca no HVAC. */
+    private void clearDryingStateLocked() {
+        dryingKind = DryingKind.NONE;
+        dryingSnapshot.clear();
+        dryingRemainingSeconds = 0;
+        dryingDeadlineElapsed = 0L;
+        // O looper dela ja morreu nos casos de restart; removeCallbacks seria no-op.
+        dryingTickRunnable = null;
+        publishDryingFlags();
+    }
+
+    /**
+     * O ULTIMO ready-state entregue diz "desligado". Sem ready-state nenhum ainda, isto e
+     * false — tratamos "nao sei" como "nao desligado", que e o lado seguro nos dois usos:
+     * nao iniciar secagem por engano, e nao deixar de armar o compressor.
+     * Leitura so de memoria, sob o lock curto.
+     */
+    private boolean isReadyStateOffNow() {
+        synchronized (readyStateLock) {
+            return lastReadyStateValue != null && isReadyStateOff(lastReadyStateValue);
+        }
+    }
+
+    private String currentReadyStateValue() {
+        synchronized (readyStateLock) {
+            return lastReadyStateValue;
+        }
+    }
+
+    /**
+     * v2.7: decide e POSTA a secagem de desligamento. Nada de HVAC acontece aqui.
+     *
+     * Este metodo roda na thread de callback do vehicle control — e, via
+     * DispatchAllDatasReceiver, na MAIN thread. Iniciar a secagem inline aqui seriam 10
+     * fetchData sincronos (two-way, sem timeout, dentro de uma transacao binder) no
+     * exato momento em que o carro esta indo embora, com ANR no caminho da main thread.
+     * Por isso: decide-se aqui, executa-se no backgroundHandler.
+     *
+     * Quatro guardas, e todas precisam passar:
+     *   1. borda  — o desligamento manda -1 e depois 0; sem borda, dois ciclos.
+     *   2. ligada — o card fica na secao "Ao Desligar" e nasce ligado.
+     *   3. armada — so depois de ver uma ignicao viva NESTE processo. Sem isso, o
+     *      dispatchAllData() da inicializacao (com o carro parado) cairia aqui e
+     *      dispararia uma secagem fantasma a cada subida do servico.
+     *   4. compressor — sem compressor nao ha agua no evaporador para secar.
+     */
+    private void maybeStartShutdownDrying(boolean edge, String value) {
+        final boolean enabled = sharedPreferences.getBoolean(
+                SharedPreferencesKeys.ENABLE_SHUTDOWN_DRYING.getKey(), true);
+        final boolean armed = sawLiveIgnitionThisProcess;
+        final boolean spent = shutdownDryingConsumedThisIgnition;
+        final boolean acUsed = acCompressorRanThisIgnition;
+        if (!edge || !enabled || !armed || spent || !acUsed) {
+            // Log sempre: e esta linha que diz QUAL guarda barrou quando no carro nao
+            // acontecer nada.
+            Log.w(TAG, "[DESLIG] secagem ao desligar NAO disparada ready=" + value
+                    + " borda=" + edge + " ligada=" + enabled + " armada=" + armed
+                    + " jaGasta=" + spent + " compressorRodou=" + acUsed);
+            return;
+        }
+        // Consome a borda JA, na thread do callback. O barramento repete o OFF: a
+        // marcacao tem de existir antes de a repeticao ser entregue, senao a guarda 3
+        // deixa passar o segundo ciclo (o consuming no backgroundHandler chegaria tarde).
+        shutdownDryingConsumedThisIgnition = true;
+        Log.w(TAG, "[DESLIG] secagem ao desligar armada — postando no backgroundHandler elapsed="
+                + SystemClock.elapsedRealtime());
+        backgroundHandler.post(this::startShutdownDrying);
+    }
+
+    /**
+     * Secagem manual (volante / menu do cluster): so ventilador, compressor
+     * desligado, temperatura HI, ventilacao no maximo e ar externo, por 2 minutos.
+     * Usada para secar o evaporador e evitar mofo depois de usar o A/C.
      */
     public void startDryingMode() {
-        if (isDryingModeActive) {
+        if (isDryingModeActive()) {
             cancelDryingMode();
             return;
         }
-        try {
-            // Do not run alongside the Max AC automation
-            cancelMaxAcMode();
+        // Nao roda junto com o Max AC (comportamento historico: o snapshot pega o
+        // estado que o Max AC restaurou ao ser derrubado).
+        cancelMaxAcMode();
+        startDrying(DryingKind.MANUAL, DRYING_MODE_DURATION_SECONDS);
+    }
 
-            String prevPower = getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue());
-            String prevEnabled = getUpdatedData(CarConstants.CAR_HVAC_AC_ENABLE.getValue());
-            String prevFan = getUpdatedData(CarConstants.CAR_HVAC_FAN_SPEED.getValue());
-            String prevDriverTemp = getUpdatedData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue());
-            String prevPassTemp = getUpdatedData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue());
-            String prevAuto = getUpdatedData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue());
-            String prevCycle = getUpdatedData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue());
-            String prevSync = getUpdatedData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue());
-            // Vent direction (windshield / face / feet...) and AQS: keep them so drying
-            // can restore them and so AQS cannot silently re-enable internal circulation.
-            String prevBlower = getUpdatedData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue());
-            String prevAqs = getUpdatedData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue());
-
-            previousDryingState.put(CarConstants.CAR_HVAC_POWER_MODE.getValue(), prevPower);
-            previousDryingState.put(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), prevEnabled);
-            previousDryingState.put(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), prevFan);
-            previousDryingState.put(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), prevDriverTemp);
-            previousDryingState.put(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), prevPassTemp);
-            previousDryingState.put(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), prevAuto);
-            previousDryingState.put(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), prevCycle);
-            previousDryingState.put(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), prevSync);
-            previousDryingState.put(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), prevBlower);
-            previousDryingState.put(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), prevAqs);
-
-            updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1");
-            updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), "0");
-            // Turning AUTO off can make the module snap the vent direction to its own
-            // default — re-apply the user's direction so drying keeps it untouched.
-            if (prevBlower != null) {
-                updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), prevBlower);
+    /**
+     * v2.7: secagem automatica no desligamento. Roda SEMPRE no backgroundHandler —
+     * nunca inline no ramo do ready-state, que executa na thread de callback do
+     * vehicle control e, via DispatchAllDatasReceiver, tambem na MAIN thread.
+     * Iniciar inline ali seriam 10 fetchData sincronos (chamada two-way dentro de
+     * uma transacao binder, sem timeout) no exato momento em que o carro vai embora.
+     */
+    private void startShutdownDrying() {
+        // Guarda de re-leitura, especifica do fato de isto rodar POSTADO: entre o disparo
+        // e este runnable o carro pode ter sido religado. Nesse caso o ramo ON nao viu
+        // secagem nenhuma para encerrar (ela ainda nao existia) e a secagem nasceria com o
+        // carro ligado. Em vez de confiar na memoria do disparo, olha o ultimo ready-state.
+        synchronized (readyStateLock) {
+            if (lastReadyStateValue == null || !isReadyStateOff(lastReadyStateValue)) {
+                Log.w(TAG, "[SECAGEM] desligamento abortado: ready-state atual ja e "
+                        + lastReadyStateValue + " (o carro religou antes de comecar)");
+                return;
             }
-            updateData(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), "0");
-            updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0"); // AQS could force internal circulation back
-            updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), "7");
-            updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), "32.0");
-            updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), "32.0");
-            updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
-            updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "1"); // H6: 1 = fresh air / outside circulation (propriedade invertida vs AOSP), sent LAST so no later command overrides it
+        }
+        synchronized (dryingLock) {
+            if (dryingKind == DryingKind.SHUTDOWN) {
+                Log.w(TAG, "[SECAGEM] ja existe uma secagem de desligamento ativa — nao sobrepoe");
+                return;
+            }
+        }
+        // Uma secagem MANUAL em andamento e encerrada antes. Era o que o ramo OFF
+        // fazia inline; agora acontece aqui, fora da thread do binder, preservando a
+        // intencao do v1.9 (restaurar com o modulo HVAC ainda acordado).
+        if (isDryingModeActive()) {
+            Log.w(TAG, "[SECAGEM] encerrando a secagem manual no desligamento");
+            requestFinish(true, "desligamento encerrou a manual");
+        }
+        cancelMaxAcMode();
+        int seconds = sharedPreferences.getInt(
+                SharedPreferencesKeys.SHUTDOWN_DRYING_DURATION.getKey(), SHUTDOWN_DRYING_DURATION_DEFAULT);
+        if (seconds < SHUTDOWN_DRYING_MIN_SECONDS) seconds = SHUTDOWN_DRYING_MIN_SECONDS;
+        if (seconds > SHUTDOWN_DRYING_MAX_SECONDS) seconds = SHUTDOWN_DRYING_MAX_SECONDS;
+        startDrying(DryingKind.SHUTDOWN, seconds);
+    }
 
-            isDryingModeActive = true;
-            dryingModeRemainingSeconds = DRYING_MODE_DURATION_SECONDS;
+    /**
+     * Caminho comum de inicio, em quatro tempos, exatamente para que NENHUMA chamada
+     * de binder aconteca com dryingLock na mao:
+     *
+     *   ler (binder, sem lock) -> reservar (lock, so memoria) -> comandar (binder, sem
+     *   lock) -> instalar (lock, so memoria + post).
+     *
+     * O preco e que existe uma janela entre reservar e instalar em que o ciclo conta
+     * como ativo mas o tick ainda nao subiu. Nessa janela um requestFinish e legitimo
+     * (carro religou, usuario cancelou) e simplesmente vence: installDrying ve o kind
+     * trocado, nao instala, e o startDrying desfaz o que ja mandou.
+     */
+    private void startDrying(DryingKind kind, int durationSeconds) {
+        final boolean isShutdown = (kind == DryingKind.SHUTDOWN);
+        final Map<String, String> snapshot = readDryingSnapshot();
+        if (!reserveDrying(kind, snapshot)) {
+            Log.w(TAG, "[SECAGEM] " + kind + " ignorada: o motor de secagem ja esta ocupado");
+            return;
+        }
 
-            dryingModeTickRunnable = new Runnable() {
-                @Override
-                public void run() {
-                    if (!isDryingModeActive) return;
-                    dryingModeRemainingSeconds--;
-                    if (dryingModeRemainingSeconds <= 0) {
-                        finishDryingMode(false);
-                        return;
+        // Ultima re-leitura, no ponto mais perto possivel do comando. Entre a guarda do
+        // topo de startShutdownDrying e aqui passaram dezenas a centenas de ms (11 leituras
+        // de binder + um commit em disco) — e nesse intervalo o carro pode ter sido
+        // religado, caso em que o ciclo nasceria com o carro LIGADO e as guardas de startup
+        // e de Max AC veriam "secagem de desligamento ativa" e se afastariam. Abortar AQUI
+        // nao custa comando nenhum: nada foi enviado ainda.
+        if (isShutdown && !isReadyStateOffNow()) {
+            Log.w(TAG, "[SECAGEM] desligamento abortado antes do primeiro comando — ready-state"
+                    + " atual ja e " + currentReadyStateValue());
+            synchronized (dryingLock) {
+                if (dryingKind == kind) clearDryingStateLocked();
+            }
+            return;
+        }
+
+        // Janela do banco armada AQUI, antes do primeiro comando — e nao em installDrying.
+        // O POWER=1 sai em sendDryingProfile logo abaixo, e a notificacao dele pode chegar
+        // enquanto este thread ainda esta mandando o resto do perfil: armar depois deixava
+        // passar justamente o evento que a janela existe para suprimir, e o banco ia para o
+        // nivel 3 num carro desligado. Prazo contado daqui: ciclo + carencia.
+        //
+        // DEPOIS do aborto acima, nunca antes: o aborto sai sem mandar comando nenhum e sem
+        // chamar requestFinish, entao uma janela armada ali sobreviveria ao ciclo que nunca
+        // existiu — e blindaria a ventilacao do banco por ate 60s+15s da viagem seguinte,
+        // que comecou com o carro ligando.
+        if (isShutdown) {
+            suppressSeatVentBoostUntilElapsed = SystemClock.elapsedRealtime()
+                    + durationSeconds * 1000L + SEAT_VENT_SUPPRESS_GRACE_MS;
+        }
+
+        final String prevPower = snapshot.get(CarConstants.CAR_HVAC_POWER_MODE.getValue());
+        final String prevAc = snapshot.get(CarConstants.CAR_HVAC_AC_ENABLE.getValue());
+        final String prevBlower = snapshot.get(CarConstants.CAR_HVAC_BLOWER_MODE.getValue());
+        boolean installed = false;
+        try {
+            // Grava a intencao ANTES do primeiro comando de HVAC. Se a central perder
+            // energia agora, e isto que conta a historia na proxima ignicao — e o log
+            // registra o prevPower/prevAc lidos antes de escrevermos qualquer coisa,
+            // que e o dado que responde se o estado do HVAC sobrevive entre ignicoes.
+            if (isShutdown) {
+                markShutdownDryingPending(prevPower, prevAc);
+            }
+
+            if (sendDryingProfile(kind, prevBlower)) {
+                installed = installDrying(kind, durationSeconds);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "[SECAGEM] erro ao iniciar", e);
+        }
+
+        if (!installed) {
+            // Duas causas possiveis, e as duas querem a mesma resposta: excecao no meio
+            // do perfil, ou alguem encerrou o ciclo enquanto comandavamos. Parte do
+            // perfil ja saiu, e nao pode sobrar sem tick para corrigir.
+            Log.w(TAG, "[SECAGEM] " + kind + " NAO instalada — desfazendo o que ja saiu");
+            // O teste e stillDrying(kind), NAO o espelho global: com o espelho, uma
+            // instalacao que falhou podia encontrar o ciclo de OUTRO dono ativo (outra
+            // thread reservou no meio-tempo) e encerrar um ciclo saudavel alheio.
+            if (stillDrying(kind)) {
+                requestFinish(false, "nao instalada");
+            } else if (isShutdown) {
+                // Alguem JA encerrou e o carro esta desligado: o nosso proprio POWER=1 pode
+                // ter saido depois do restore dele, e deixar a ventilacao ligada sem ignicao
+                // e o unico desfecho inaceitavel (temperatura/ventilacao a ignicao seguinte
+                // reaplica se estiver configurado).
+                updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "0");
+            } else {
+                // MANUAL com o ciclo ja encerrado por outro: quem cancelou restaurou a
+                // intencao DELE (o A/C do usuario, tipicamente) e um POWER=0 cego aqui
+                // desligaria esse A/C — dois toques rapidos no botao da secagem bastavam para
+                // isso. Nao escrevemos nada: sobrescrever a decisao de quem cancelou seria
+                // pior do que o rastro que o nosso perfil parcial possa ter deixado, e o
+                // restore do cancelamento passa por cima dele quando chega depois.
+                Log.w(TAG, "[SECAGEM] MANUAL nao instalada com o ciclo ja encerrado por outro"
+                        + " — nao sobrescreve o power");
+            }
+            return;
+        }
+
+        Log.w(TAG, "[SECAGEM] " + kind + " iniciada dur=" + durationSeconds
+                + "s fan=7 temp=32.0 cycle=1(externa) aqs=0 ac=0 prevPower=" + prevPower
+                + " prevAc=" + prevAc + " elapsed=" + SystemClock.elapsedRealtime());
+    }
+
+    /** As 10 leituras do estado atual do HVAC. Binder two-way: NUNCA sob dryingLock. */
+    private Map<String, String> readDryingSnapshot() {
+        Map<String, String> snapshot = new HashMap<>();
+        snapshot.put(CarConstants.CAR_HVAC_POWER_MODE.getValue(),
+                getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue()));
+        snapshot.put(CarConstants.CAR_HVAC_AC_ENABLE.getValue(),
+                getUpdatedData(CarConstants.CAR_HVAC_AC_ENABLE.getValue()));
+        snapshot.put(CarConstants.CAR_HVAC_FAN_SPEED.getValue(),
+                getUpdatedData(CarConstants.CAR_HVAC_FAN_SPEED.getValue()));
+        snapshot.put(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(),
+                getUpdatedData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue()));
+        snapshot.put(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(),
+                getUpdatedData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue()));
+        snapshot.put(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(),
+                getUpdatedData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue()));
+        snapshot.put(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(),
+                getUpdatedData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue()));
+        snapshot.put(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(),
+                getUpdatedData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue()));
+        // Vent direction (windshield / face / feet...) and AQS: keep them so drying
+        // can restore them and so AQS cannot silently re-enable internal circulation.
+        snapshot.put(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(),
+                getUpdatedData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue()));
+        snapshot.put(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(),
+                getUpdatedData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue()));
+        return snapshot;
+    }
+
+    /**
+     * Toma posse do motor. O snapshot entra aqui, ainda sem nenhum comando enviado,
+     * justamente para que um requestFinish que chegue durante os comandos tenha o que
+     * restaurar. Devolve false se outro ciclo chegou primeiro.
+     */
+    private boolean reserveDrying(DryingKind kind, Map<String, String> snapshot) {
+        synchronized (dryingLock) {
+            if (dryingKind != DryingKind.NONE) return false;
+            dryingKind = kind;
+            dryingSnapshot.clear();
+            dryingSnapshot.putAll(snapshot);
+            dryingRemainingSeconds = 0; // instalado de verdade em installDrying
+            dryingDeadlineElapsed = 0L;
+            // A UI ja ve a secagem como ativa a partir daqui — e o que faz um segundo
+            // toque no botao do volante cancelar em vez de empilhar um ciclo.
+            publishDryingFlags();
+            return true;
+        }
+    }
+
+    /**
+     * Publica o prazo e sobe o tick, depois dos comandos. Devolve false se o ciclo foi
+     * encerrado no meio-tempo (nao instala nada).
+     */
+    private boolean installDrying(DryingKind kind, int durationSeconds) {
+        synchronized (dryingLock) {
+            if (dryingKind != kind) return false;
+            long now = SystemClock.elapsedRealtime();
+            dryingRemainingSeconds = durationSeconds;
+            // Prazo ABSOLUTO calculado UMA vez. Nenhuma notificacao futura o altera —
+            // e isto que impede o barramento, repetindo o OFF, de esticar o ciclo para
+            // sempre. E substitui o antigo dryingModeTimeoutRunnable, que era falso
+            // seguro: vivia no MESMO looper do tick, entao travava junto com ele.
+            dryingDeadlineElapsed = now + durationSeconds * 1000L;
+            dryingTickRunnable = buildDryingTick();
+            // O handler e lido UMA vez, num local: initializeServices anula o campo no
+            // cleanup, e ler duas vezes poderia pegar dois handlers diferentes.
+            final Handler handler = backgroundHandler;
+            if (handler == null) {
+                Log.w(TAG, "[SECAGEM] sem backgroundHandler (servico reiniciando) — abortando o ciclo");
+                dryingTickRunnable = null;
+                return false;
+            }
+            // O retorno IMPORTA. Um ciclo pode ser instalado justo quando o looper esta
+            // morrendo: initializeServices faz quitSafely() no handler antigo e cria outro,
+            // e quit(true) apaga toda mensagem futura — o tick de 1s entra nessa. Se o
+            // post fosse aceito sem ser entregue, sobraria um ciclo "ativo" sem ninguem
+            // para encerra-lo: POWER=1 / fan 7 / 32 C num carro desligado, para sempre.
+            // Recusado (looper morto) => devolve false e o startDrying desfaz o perfil.
+            if (!handler.postDelayed(dryingTickRunnable, 1000L)) {
+                Log.w(TAG, "[SECAGEM] handler recusou o tick (looper morto?) — abortando o ciclo");
+                dryingTickRunnable = null;
+                return false;
+            }
+            return true;
+        }
+    }
+
+    /**
+     * Manda o perfil de secagem inteiro. Os dois pontos de saida existem para nao
+     * continuar escrevendo por cima do que quem encerrou o ciclo acabou de restaurar —
+     * a janela fica do tamanho de um lote de comandos, nao do perfil todo.
+     * Devolve false se o ciclo deixou de ser dono no meio.
+     */
+    private boolean sendDryingProfile(DryingKind kind, String prevBlower) {
+        updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1");
+        updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), "0");
+        // Turning AUTO off can make the module snap the vent direction to its own
+        // default — re-apply the user's direction so drying keeps it untouched.
+        if (prevBlower != null) {
+            updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), prevBlower);
+        }
+        updateData(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), "0");
+        updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0"); // AQS could force internal circulation back
+        if (!stillDrying(kind)) return false;
+        updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), "7");
+        updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), "32.0");
+        updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), "32.0");
+        updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
+        updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "1"); // H6: 1 = fresh air / outside circulation (propriedade invertida vs AOSP), sent LAST so no later command overrides it
+        return true;
+    }
+
+    private boolean stillDrying(DryingKind kind) {
+        synchronized (dryingLock) {
+            return dryingKind == kind;
+        }
+    }
+
+    private Runnable buildDryingTick() {
+        return new Runnable() {
+            @Override
+            public void run() {
+                final int remaining;
+                final boolean shutdown;
+                final boolean expired;
+                synchronized (dryingLock) {
+                    // A checagem e de IDENTIDADE, nao so do kind. Entre o fim de um ciclo e o
+                    // comeco de outro este mesmo Runnable pode continuar na fila (encerrar e
+                    // recomecar dentro de 1s). Sem isso, o runnable velho veria o kind NOVO,
+                    // decrementaria o contador por fora e se re-postaria — dois runnables
+                    // vivos, contagem andando em dobro, e um deles imortal enquanto a
+                    // secagem durasse.
+                    if (dryingTickRunnable != this) return; // morta: sai sem re-postar
+                    dryingRemainingSeconds--;
+                    remaining = dryingRemainingSeconds;
+                    shutdown = (dryingKind == DryingKind.SHUTDOWN);
+                    // Rede de seguranca dentro do proprio tick: mesmo que a contagem
+                    // dessincronize, o prazo absoluto manda.
+                    expired = SystemClock.elapsedRealtime() >= dryingDeadlineElapsed;
+                }
+
+                if (remaining <= 0 || expired) {
+                    Log.w(TAG, "[SECAGEM] fim por " + (expired ? "prazo absoluto" : "contagem")
+                            + " (" + (shutdown ? "desligamento" : "manual") + ")");
+                    requestFinish(false, expired ? "prazo absoluto" : "contagem esgotada");
+                    return;
+                }
+
+                // Os comandos de reafirmacao so saem se ainda formos o tick vigente: sao
+                // envios cegos para o modulo e escreveriam por cima de um restore que
+                // acabou de rodar em outra thread.
+                boolean reassert = isCurrentTick(this);
+                if (reassert && shutdown) {
+                    // Reafirmacao CEGA de proposito. A secagem manual faz read-before-write
+                    // desde a v2.1 para nao popar o painel nativo do A/C por cima do GPS —
+                    // mas aqui o carro esta desligado, nao ha painel para popar, e um
+                    // fetchData pode travar segundos com o modulo HVAC dormindo. E o tick
+                    // justamente o que nao podemos perder. Reafirmar fan/temp tambem cobre
+                    // o modulo ter engolido os primeiros envios enquanto acordava.
+                    if (remaining % 5 == 0) {
+                        reassertBatch(this);
+                        Log.w(TAG, "[SECAGEM] reafirmando (cego) t=" + remaining
+                                + "s elapsed=" + SystemClock.elapsedRealtime());
                     }
+                } else if (reassert && remaining % 3 == 0) {
                     // Re-assert fresh-air circulation (CYCLE=1 on the H6) + AQS off every
                     // 3 seconds so the drying really dries with outside air, as requested.
                     // v2.1: read-before-write — reescrever cegamente a cada 3s mandava ~80
                     // comandos externos por secagem e cada escrita popava o painel nativo do
                     // A/C na central por cima do GPS. Ler primeiro e escrever SÓ quando o
                     // módulo derivou mantém a secagem silenciosa e ainda briga com a deriva.
-                    if (dryingModeRemainingSeconds % 3 == 0) {
-                        String aqs = getUpdatedData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue());
-                        if (aqs == null || !aqs.equals("0")) {
-                            updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0"); // AQS could force internal circulation back
-                        }
-                        String cycle = getUpdatedData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue());
-                        if (cycle == null || !cycle.equals("1")) {
-                            updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "1"); // H6: 1 = fresh air / outside circulation
-                        }
+                    String aqs = getUpdatedData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue());
+                    if (aqs == null || !aqs.equals("0")) {
+                        updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0"); // AQS could force internal circulation back
                     }
-                    dispatchServiceManagerEvent(ServiceManagerEventType.DRYING_MODE_STATUS_CHANGED, dryingModeRemainingSeconds);
-                    backgroundHandler.postDelayed(this, 1000L);
+                    String cycle = getUpdatedData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue());
+                    if (cycle == null || !cycle.equals("1")) {
+                        updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "1"); // H6: 1 = fresh air / outside circulation
+                    }
                 }
-            };
-            backgroundHandler.postDelayed(dryingModeTickRunnable, 1000L);
 
-            dryingModeTimeoutRunnable = () -> finishDryingMode(false);
-            backgroundHandler.postDelayed(dryingModeTimeoutRunnable, DRYING_MODE_DURATION_SECONDS * 1000L);
+                // dispatchServiceManagerEvent ja loga em WARN: o tick vira um heartbeat
+                // de 1 Hz no gist de diagnostico sem custo de log extra.
+                dispatchServiceManagerEvent(ServiceManagerEventType.DRYING_MODE_STATUS_CHANGED, remaining);
+                // Re-posta so se continuarmos sendo o tick vigente (checagem fora do lock:
+                // o pior caso de uma corrida aqui e UM no-op a mais, que a checagem de
+                // identidade do proximo run descarta).
+                if (isCurrentTick(this)) {
+                    final Handler handler = backgroundHandler;
+                    // Sem looper nao existe proximo tick — e um ciclo ativo sem tick e
+                    // exatamente o desfecho que nao pode acontecer. Encerra aqui: o POWER=0
+                    // do fim sai por updateData, que nao depende do handler.
+                    if (handler == null || !handler.postDelayed(this, 1000L)) {
+                        Log.w(TAG, "[SECAGEM] nao consegui repostar o tick — encerrando o ciclo agora");
+                        requestFinish(false, "sem handler para o proximo tick");
+                    }
+                }
+            }
+        };
+    }
 
-            Log.w(TAG, "Drying mode started for " + DRYING_MODE_DURATION_SECONDS + " seconds");
-        } catch (Exception e) {
-            Log.e(TAG, "Error starting drying mode", e);
+    /** Este Runnable ainda e o tick vigente do motor de secagem? */
+    private boolean isCurrentTick(Runnable tick) {
+        synchronized (dryingLock) {
+            return dryingTickRunnable == tick;
+        }
+    }
+
+    /**
+     * Re-deriva a memoria do compressor na borda de subida do ready-state. Aqui a flag pode
+     * ser DESARMADA — e a unica hora em que isso e verdade: a viagem nova se define por este
+     * instante, e uma notificacao do desligamento anterior nao pode sobreviver para a viagem
+     * seguinte e fazer secar quem nao usou A/C.
+     *
+     * Pergunta ao MODULO, com uma leitura fresca, em vez de ler o cache: o cache guarda toda
+     * entrega, inclusive a que chegou com o carro desligado (o modulo segue reportando o
+     * botao do A/C depois de desligar), e re-derivar daquele valor ressuscitaria exatamente o
+     * falso-positivo. A resposta do modulo no instante em que a ignicao sobe e a verdade da
+     * viagem nova — e se ele reportar o valor novo so um instante depois, o push seguinte
+     * arma a flag do mesmo jeito, porque no meio da viagem ela so e armada.
+     *
+     * Vai para o backgroundHandler porque este ramo roda tambem na MAIN thread e getUpdatedData
+     * e um fetchData two-way sem timeout.
+     */
+    private void rederiveCompressorFlag() {
+        final String key = CarConstants.CAR_HVAC_AC_ENABLE.getValue();
+        final Handler handler = backgroundHandler;
+        if (handler == null) return;
+        handler.post(() -> {
+            final String current = getUpdatedData(key);
+            if (current == null) return; // binder fora: mantem o que ja havia
+            final boolean compressorOn = "1".equals(current);
+            acCompressorRanThisIgnition = compressorOn;
+            Log.w(TAG, "[SECAGEM] viagem nova: compressorRodou=" + compressorOn
+                    + " (ac_enable=" + current + " lido do modulo)");
+        });
+    }
+
+    /**
+     * Lote de reafirmacao cega da secagem de desligamento.
+     *
+     * POWER e AC entram no lote porque sao justamente as duas chaves que DEFINEM a
+     * funcionalidade, e as duas que o modulo tem motivo proprio para derrubar: o power-off
+     * dele mesmo desliga a ventilacao, e o compressor so voltaria se alguem o religasse.
+     * Reafirmar so fan/temp deixaria "secando" com o ventilador parado — o defeito
+     * silencioso, que parece funcionar no log e nao seca nada.
+     *
+     * CADA escrita reconfere a posse, e nao so o lote. `isCurrentTick` e check-then-act: o
+     * encerramento pode entrar entre a checagem e as escritas (usuario mexendo na central,
+     * carro religando), e um POWER=1 nosso saindo DEPOIS do POWER=0 do encerramento deixaria
+     * o ar ligado num carro desligado sem tick nenhum para corrigir. A janela entre a
+     * checagem e a escrita continua existindo — um par de instrucoes, nao o lote inteiro.
+     */
+    private void reassertBatch(Runnable tick) {
+        reassertOwned(tick, CarConstants.CAR_HVAC_POWER_MODE.getValue(), "1");
+        reassertOwned(tick, CarConstants.CAR_HVAC_AC_ENABLE.getValue(), "0");
+        reassertOwned(tick, CarConstants.CAR_HVAC_FAN_SPEED.getValue(), "7");
+        reassertOwned(tick, CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), "32.0");
+        reassertOwned(tick, CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), "32.0");
+        reassertOwned(tick, CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0");
+        // CYCLE por ULTIMO, o mesmo cuidado do perfil inicial: e a chave que define "ar de
+        // fora" e nada depois dela pode reverter a circulacao.
+        reassertOwned(tick, CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "1");
+    }
+
+    private void reassertOwned(Runnable tick, String key, String value) {
+        if (isCurrentTick(tick)) {
+            updateData(key, value);
         }
     }
 
     public void cancelDryingMode() {
-        finishDryingMode(true);
+        requestFinish(true, "cancelada pelo usuario");
     }
 
     public boolean isDryingModeActive() {
-        return isDryingModeActive;
+        return dryingKindFlag != DryingKind.NONE;
     }
 
-    private void finishDryingMode(boolean restorePower) {
-        if (!isDryingModeActive) return;
-        try {
-            // Restore everything EXCEPT power first, then power LAST. The snapshot is a
-            // HashMap, so iterating it directly sends commands in arbitrary order — and if
-            // POWER=0 went out before FAN=prev, the module re-woke the blower on the fan
-            // command, leaving the ventilation running after "off" was shown.
-            String powerValue = null;
-            for (Map.Entry<String, String> entry : previousDryingState.entrySet()) {
-                if (entry.getValue() == null) continue;
-                if (entry.getKey().equals(CarConstants.CAR_HVAC_POWER_MODE.getValue())) {
-                    powerValue = entry.getValue();
-                    continue;
-                }
-                updateData(entry.getKey(), entry.getValue());
+    public boolean isShutdownDryingActive() {
+        return dryingKindFlag == DryingKind.SHUTDOWN;
+    }
+
+    /**
+     * Espelhos volatile publicados SOB dryingLock. Os acessores publicos NUNCA pegam
+     * dryingLock de proposito: requestFinish libera o lock e depois chama
+     * dispatchServiceManagerEvent, e os listeners (MainMenu, InstrumentProjector2)
+     * chamam isDryingModeActive() de volta. Se o acessor pegasse o lock, seria
+     * T1 segura o lock -> dispara evento -> listener em T2 bloqueia -> T1 espera T2.
+     * Monitores Java sao reentrantes, entao o caso mesma-thread se salva; o caso
+     * cross-thread e deadlock de verdade.
+     */
+    private void publishDryingFlags() {
+        dryingKindFlag = dryingKind;
+    }
+
+    /**
+     * Encerra a secagem. Transicao de estado sob o lock, I/O FORA dele — e isso que
+     * torna a analise de deadlock trivial: ninguem bloqueia segurando o lock.
+     */
+    private void requestFinish(boolean restorePower, String reason) {
+        final DryingKind kind;
+        final Map<String, String> snapshot;
+        synchronized (dryingLock) {
+            if (dryingKind == DryingKind.NONE) return; // exatamente-uma-vez
+            kind = dryingKind;
+            dryingKind = DryingKind.NONE; // o tick e qualquer cancelador viram no-op ja
+            snapshot = new HashMap<>(dryingSnapshot); // copia: os envios fogem do lock
+            dryingSnapshot.clear();
+            dryingRemainingSeconds = 0;
+            dryingDeadlineElapsed = 0L;
+            // backgroundHandler pode ja ter sido anulado pelo cleanup do initializeServices
+            // enquanto este requestFinish roda (o tick vive no looper antigo). Sem a guarda,
+            // um NPE aqui subiria pela pilha do HandlerThread e mataria a thread — deixando o
+            // app inteiro sem background sem nenhum sinal claro do porque.
+            final Handler handler = backgroundHandler;
+            if (dryingTickRunnable != null) {
+                if (handler != null) handler.removeCallbacks(dryingTickRunnable);
+                dryingTickRunnable = null;
             }
-            if (powerValue != null) {
-                // Natural completion leaves the HVAC off; manual cancel restores the previous power state
-                updateData(CarConstants.CAR_HVAC_POWER_MODE.getValue(), restorePower ? powerValue : "0");
+            // Janela do banco encurtada, nao zerada: a notificacao do NOSSO ultimo POWER=1
+            // pode estar em voo agora, e zerar aqui deixaria esse eco passar pelo ramo de
+            // ventilacao, ligando o banco logo depois de o ciclo ter terminado. 3s cobrem o
+            // eco e nao atrapalham nada depois: o POWER=0 daqui de baixo ja vai reenviar a
+            // notificacao e zerar o banco de qualquer forma.
+            if (kind == DryingKind.SHUTDOWN) {
+                suppressSeatVentBoostUntilElapsed = SystemClock.elapsedRealtime() + 3_000L;
+            }
+            publishDryingFlags();
+        }
+        // ---- sem lock daqui para baixo ----
+        try {
+            // O POWER=0 do desligamento e a escrita que NAO pode se perder: sem ela o modulo
+            // continua achando que esta secando. Se ela falhar (controlService morto, ou
+            // RemoteException no meio), a flag de pendencia em disco NAO e apagada — ela vira
+            // a unica evidencia de que um ciclo terminou sem o comando chegar, que e
+            // exatamente o que o diagnostico do H5 precisa distinguir de "perda de energia".
+            final boolean terminalPowerSent = writeSnapshotAndPower(snapshot, kind, restorePower);
+            Log.w(TAG, "[SECAGEM] " + kind + " encerrada (" + reason + ") power="
+                    + (kind == DryingKind.SHUTDOWN ? "0"
+                       : (restorePower ? "restaurado(" + snapshot.get(CarConstants.CAR_HVAC_POWER_MODE.getValue()) + ")" : "0"))
+                    + " entregue=" + terminalPowerSent
+                    + " elapsed=" + SystemClock.elapsedRealtime());
+            if (kind == DryingKind.SHUTDOWN && terminalPowerSent) {
+                clearShutdownDryingPending();
+            } else if (kind == DryingKind.SHUTDOWN) {
+                Log.w(TAG, "[SECAGEM] POWER=0 NAO foi entregue — mantendo a pendencia em disco"
+                        + " para a proxima subida contar (o modulo pode ter ficado em POWER=1)");
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error finishing drying mode", e);
+            Log.e(TAG, "[SECAGEM] erro ao encerrar", e);
         } finally {
-            isDryingModeActive = false;
-            previousDryingState.clear();
-            if (dryingModeTimeoutRunnable != null) {
-                backgroundHandler.removeCallbacks(dryingModeTimeoutRunnable);
-                dryingModeTimeoutRunnable = null;
-            }
-            if (dryingModeTickRunnable != null) {
-                backgroundHandler.removeCallbacks(dryingModeTickRunnable);
-                dryingModeTickRunnable = null;
-            }
             dispatchServiceManagerEvent(ServiceManagerEventType.DRYING_MODE_STATUS_CHANGED, 0);
         }
+    }
+
+    /**
+     * Desfaz o perfil: escreve o snapshot inteiro (menos o power) e o power por ULTIMO.
+     * Devolve se o comando de power foi de fato entregue ao binder.
+     *
+     * O power vai por ultimo de proposito: o snapshot e um HashMap, entao iterar direto
+     * manda os comandos em ordem arbitraria — e se o POWER=0 saisse antes do FAN=anterior,
+     * o modulo reacordava a ventilacao no comando de fan, deixando o ar ligado depois de a
+     * interface ja mostrar "desligado".
+     *
+     * `restorePreviousPower=false` forca o power a "0" (desligamento do veiculo);
+     * `true` devolve o valor que estava antes da secagem (cancelamento manual).
+     */
+    private boolean writeSnapshotAndPower(Map<String, String> snapshot, DryingKind kind, boolean restorePreviousPower) {
+        for (Map.Entry<String, String> entry : snapshot.entrySet()) {
+            if (entry.getValue() == null) continue;
+            if (entry.getKey().equals(CarConstants.CAR_HVAC_POWER_MODE.getValue())) continue;
+            updateData(entry.getKey(), entry.getValue());
+        }
+        final String previousPower = snapshot.get(CarConstants.CAR_HVAC_POWER_MODE.getValue());
+        if (kind == DryingKind.SHUTDOWN) {
+            // NUNCA restaura o power anterior: o estado anterior e da ignicao que acabou, e
+            // ligar a ventilacao com o carro desligado a deixaria ligada para sempre. Os
+            // valores (temp/fan/circulacao) voltam ao que eram.
+            return updateDataChecked(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "0");
+        }
+        // Sem teste de null no caminho: se a leitura do snapshot falhou no start (binder
+        // morto naquele instante), previousPower e null e a versao anterior simplesmente nao
+        // mandava comando NENHUM — deixando POWER=1 num ciclo que acabou de anunciar que
+        // terminou. Na duvida, desligar e o lado seguro. Natural completion leaves the HVAC
+        // off; manual cancel restores the previous power state.
+        return updateDataChecked(CarConstants.CAR_HVAC_POWER_MODE.getValue(),
+                (restorePreviousPower && previousPower != null) ? previousPower : "0");
+    }
+
+    /**
+     * Marca que um ciclo de desligamento comecou. commit() e nao apply(): isto precisa
+     * estar NO DISCO antes do primeiro comando de HVAC ir para a rua — apply() e
+     * assincrono e uma queda de energia nos proximos milissegundos perderia a flag,
+     * que e exatamente o que queremos registrar. Rodamos no backgroundHandler.
+     */
+    private void markShutdownDryingPending(String prevPower, String prevAc) {
+        try {
+            sharedPreferences.edit()
+                    .putBoolean(SharedPreferencesKeys.SHUTDOWN_DRYING_PENDING.getKey(), true)
+                    .putLong(SharedPreferencesKeys.SHUTDOWN_DRYING_STARTED_AT.getKey(), System.currentTimeMillis())
+                    .commit();
+            Log.w(TAG, "[SECAGEM] pendencia gravada prevPower=" + prevPower + " prevAc=" + prevAc);
+        } catch (Exception e) {
+            Log.e(TAG, "[SECAGEM] erro ao gravar pendencia", e);
+        }
+    }
+
+    private void clearShutdownDryingPending() {
+        sharedPreferences.edit().putBoolean(SharedPreferencesKeys.SHUTDOWN_DRYING_PENDING.getKey(), false).apply();
+    }
+
+    /**
+     * v2.7: a central pode perder energia no meio da secagem — o processo morre, o tick
+     * nunca roda e o HVAC fica em POWER=1 / 32 C / fan 7. Aqui a gente registra o fato:
+     * e ele que explica o residual no log e responde se o estado do HVAC sobrevive
+     * entre ignicoes. NADA e forcado aqui de proposito — so depois de medir.
+     */
+    private void reportInterruptedShutdownDrying(String where) {
+        if (!sharedPreferences.getBoolean(SharedPreferencesKeys.SHUTDOWN_DRYING_PENDING.getKey(), false)) return;
+        long startedAt = sharedPreferences.getLong(SharedPreferencesKeys.SHUTDOWN_DRYING_STARTED_AT.getKey(), 0L);
+        Log.w(TAG, "[SECAGEM] ciclo de desligamento NAO terminou — onde=" + where
+                + " idade=" + (startedAt == 0L ? "?" : (System.currentTimeMillis() - startedAt) + "ms")
+                + " (o HVAC pode ter ficado em POWER=1 / 32C / fan 7)");
+        clearShutdownDryingPending();
     }
 
     public boolean isMaxAcActive() {
@@ -1622,6 +2389,13 @@ public class ServiceManager {
     private void activateMaxAc() {
         try {
             if (isMaxAcActive) return;
+            // v2.7: a secagem de desligamento nao e atropelavel por automacao. Aqui a
+            // consequencia de deixar passar e concreta: 16 C com o compressor ligado num
+            // carro desligado. A secagem MANUAL continua sendo cancelada, como sempre foi.
+            if (isShutdownDryingActive()) {
+                Log.w(TAG, "Max AC ignorado: secagem de desligamento em andamento");
+                return;
+            }
             cancelDryingMode();
             String prevPower = getUpdatedData(CarConstants.CAR_HVAC_POWER_MODE.getValue());
             String prevEnabled = getUpdatedData(CarConstants.CAR_HVAC_AC_ENABLE.getValue());

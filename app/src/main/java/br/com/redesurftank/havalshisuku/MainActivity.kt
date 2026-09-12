@@ -471,6 +471,9 @@ fun BasicSettingsTab(section: String) {
     var nightEndMinute by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.NIGHT_END_MINUTE.key, 0)) }
     var disableBluetoothOnPowerOff by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.key, false)) }
     var disableHotspotOnPowerOff by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.key, false)) }
+    // v2.7: secagem ao desligar. Nasce ligada — o card existe para poder desligar.
+    var enableShutdownDrying by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_SHUTDOWN_DRYING.key, true)) }
+    var shutdownDryingDuration by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.SHUTDOWN_DRYING_DURATION.key, 60)) }
     var nightBrightnessLevel by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.AUTO_BRIGHTNESS_LEVEL_NIGHT.key, 1)) }
     var dayBrightnessLevel by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.AUTO_BRIGHTNESS_LEVEL_DAY.key, 10)) }
     var enableSeatVentilationOnAcOn by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.ENABLE_SEAT_VENTILATION_ON_AC_ON.key, false)) }
@@ -814,6 +817,70 @@ fun BasicSettingsTab(section: String) {
                     disableHotspotOnPowerOff = it
                     prefs.edit { putBoolean(SharedPreferencesKeys.DISABLE_HOTSPOT_ON_POWER_OFF.key, it) }
                 }
+            ),
+            SettingItem(
+                title = "Secar o ar-condicionado ao desligar",
+                description = "Ao desligar o veículo, mantém a ventilação no máximo em temperatura máxima e com ar de fora, " +
+                    "por alguns segundos, para secar o evaporador e evitar mofo e cheiro de umidade. " +
+                    "Apenas ventilação: o compressor fica desligado (ligado ele voltaria a condensar água). " +
+                    "Dispara só quando o A/C foi realmente usado naquela viagem.",
+                checked = enableShutdownDrying,
+                onCheckedChange = {
+                    enableShutdownDrying = it
+                    prefs.edit { putBoolean(SharedPreferencesKeys.ENABLE_SHUTDOWN_DRYING.key, it) }
+                },
+                customContent = if (enableShutdownDrying) {
+                    {
+                        Text(
+                            "Duração: ${shutdownDryingDuration}s",
+                            color = Color.White,
+                            fontSize = 15.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StartupAcOptionButton(
+                                label = "30s",
+                                selected = shutdownDryingDuration == 30,
+                                onClick = {
+                                    shutdownDryingDuration = 30
+                                    prefs.edit { putInt(SharedPreferencesKeys.SHUTDOWN_DRYING_DURATION.key, 30) }
+                                }
+                            )
+                            StartupAcOptionButton(
+                                label = "60s",
+                                selected = shutdownDryingDuration == 60,
+                                onClick = {
+                                    shutdownDryingDuration = 60
+                                    prefs.edit { putInt(SharedPreferencesKeys.SHUTDOWN_DRYING_DURATION.key, 60) }
+                                }
+                            )
+                            StartupAcOptionButton(
+                                label = "2 min",
+                                selected = shutdownDryingDuration == 120,
+                                onClick = {
+                                    shutdownDryingDuration = 120
+                                    prefs.edit { putInt(SharedPreferencesKeys.SHUTDOWN_DRYING_DURATION.key, 120) }
+                                }
+                            )
+                            StartupAcOptionButton(
+                                label = "3 min",
+                                selected = shutdownDryingDuration == 180,
+                                onClick = {
+                                    shutdownDryingDuration = 180
+                                    prefs.edit { putInt(SharedPreferencesKeys.SHUTDOWN_DRYING_DURATION.key, 180) }
+                                }
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Precisa do app em execução com a central ainda energizada depois de desligar. " +
+                                "Se a central cortar a energia junto com a ignição, o ciclo termina onde parou — " +
+                                "o log de diagnóstico mostra até onde foi.",
+                            color = AppColors.TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                } else null
             )
         )
     )
