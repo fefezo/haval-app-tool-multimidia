@@ -169,6 +169,7 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.min
 import androidx.compose.foundation.lazy.grid.items as gridItems
 
@@ -2500,6 +2501,14 @@ fun InstallAppsTab() {
     }
 }
 
+// Uma release do GitHub já decodificada. `publishedAt` é o ISO-8601 cru da API.
+private data class ReleaseInfo(
+    val tag: String?,
+    val url: String?,
+    val sha256: String?,
+    val publishedAt: String?
+)
+
 @Composable
 fun InformacoesTab() {
     val context = LocalContext.current
@@ -2511,6 +2520,8 @@ fun InformacoesTab() {
     var formattedTime2 by remember { mutableStateOf("Não inicializado") }
     var formattedTime3 by remember { mutableStateOf("Não inicializado") }
     var version by remember { mutableStateOf("Desconhecida") }
+    var buildDate by remember { mutableStateOf("") }
+    var buildCommit by remember { mutableStateOf("") }
     var isPreviewVersion by remember { mutableStateOf(false) }
     var clickCount by remember { mutableIntStateOf(0) }
     var showAdvancedDialog by remember { mutableStateOf(false) }
@@ -2518,6 +2529,7 @@ fun InformacoesTab() {
     var updateMessage by remember { mutableStateOf("") }
     var updateAvailable by remember { mutableStateOf(false) }
     var latestVersion by remember { mutableStateOf("") }
+    var latestPublished by remember { mutableStateOf<String?>(null) }
     var downloadUrl by remember { mutableStateOf("") }
     var updateSha256 by remember { mutableStateOf<String?>(null) }
     var isDownloading by remember { mutableStateOf(false) }
@@ -2530,6 +2542,17 @@ fun InformacoesTab() {
     ) { /* Permission requested */ }
     var showPermissionDialog by remember { mutableStateOf(false) }
 
+    // --- Rollback ---
+    var rollbackTarget by remember { mutableStateOf<ReleaseInfo?>(null) }
+    var rollbackBusy by remember { mutableStateOf(false) }
+    var downloadLabel by remember { mutableStateOf("atualização") }
+    var rollbackLogStatus by remember { mutableStateOf<String?>(null) }
+    var rollbackMessage by remember { mutableStateOf("") }
+    var showRollbackMessage by remember { mutableStateOf(false) }
+    var showRollbackConfirm by remember { mutableStateOf(false) }
+    var rollbackLogProblem by remember { mutableStateOf("") }
+    var showRollbackNoLogs by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         try {
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -2538,6 +2561,11 @@ fun InformacoesTab() {
         } catch (e: PackageManager.NameNotFoundException) {
             version = "Erro"
         }
+        // Vêm do build.gradle.kts, não do PackageManager: a data é a da compilação
+        // deste APK e o commit diz exatamente de onde ele saiu. É o que permite ver
+        // na tela se a versão instalada é a última — ou um build local no meio do caminho.
+        buildDate = BuildConfig.BUILD_DATE
+        buildCommit = BuildConfig.BUILD_COMMIT
     }
 
     LaunchedEffect(Unit) {
@@ -2586,7 +2614,46 @@ fun InformacoesTab() {
         return null
     }
 
-    suspend fun getLatestReleaseInfo(isPreview: Boolean): Triple<String?, String?, String?> {
+    // "2026-09-12T11:47:03Z" -> "12/09/2026 11:47" no fuso do aparelho.
+    fun formatPublishedAt(iso: String?): String? {
+        if (iso.isNullOrBlank()) return null
+        return try {
+            val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val instant = parser.parse(iso) ?: return null
+            SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.US).format(instant)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    // Decodifica um objeto de release da API do GitHub. Compartilhado pelo
+    // update e pelo rollback para que os dois leiam tag, APK, hash e data
+    // exatamente do mesmo jeito.
+    fun parseRelease(json: JSONObject): ReleaseInfo {
+        var dlUrl: String? = null
+        var sha256: String? = null
+        val assets = json.optJSONArray("assets")
+        if (assets != null) {
+            for (i in 0 until assets.length()) {
+                val a = assets.getJSONObject(i)
+                if (a.getString("name").endsWith(".apk")) {
+                    dlUrl = a.getString("browser_download_url")
+                    sha256 = extractSha256(json.optString("body", ""), a.optString("digest", ""))
+                    break
+                }
+            }
+        }
+        return ReleaseInfo(
+            tag = json.optString("tag_name").ifBlank { null },
+            url = dlUrl,
+            sha256 = sha256,
+            publishedAt = json.optString("published_at").ifBlank { null }
+        )
+    }
+
+    suspend fun getLatestReleaseInfo(isPreview: Boolean): ReleaseInfo {
         return withContext(Dispatchers.IO) {
             try {
                 val endpoint = if (isPreview)
@@ -2599,54 +2666,27 @@ fun InformacoesTab() {
                 conn.requestMethod = "GET"
                 conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
 
-                if (conn.responseCode != 200) return@withContext Triple(null, null, null)
+                if (conn.responseCode != 200) return@withContext ReleaseInfo(null, null, null, null)
 
                 val reader = BufferedReader(InputStreamReader(conn.inputStream))
                 val response = reader.use { it.readText() }
 
                 if (!isPreview) {
-                    val json = JSONObject(response)
-                    val tag = json.getString("tag_name")
-                    val assets = json.getJSONArray("assets")
-                    var dlUrl: String? = null
-                    var sha256: String? = null
-                    for (i in 0 until assets.length()) {
-                        val a = assets.getJSONObject(i)
-                        if (a.getString("name").endsWith(".apk")) {
-                            dlUrl = a.getString("browser_download_url")
-                            sha256 = extractSha256(json.optString("body", ""), a.optString("digest", ""))
-                            break
-                        }
-                    }
-                    return@withContext Triple(tag, dlUrl, sha256)
+                    return@withContext parseRelease(JSONObject(response))
                 }
 
                 val releases = JSONArray(response)
-                var tag: String? = null
-                var dlUrl: String? = null
-                var sha256: String? = null
-
                 for (i in 0 until releases.length()) {
                     val rel = releases.getJSONObject(i)
                     if (rel.getBoolean("prerelease")) {
-                        tag = rel.getString("tag_name")
-                        val assets = rel.getJSONArray("assets")
-                        for (j in 0 until assets.length()) {
-                            val a = assets.getJSONObject(j)
-                            if (a.getString("name").endsWith(".apk")) {
-                                dlUrl = a.getString("browser_download_url")
-                                sha256 = extractSha256(rel.optString("body", ""), a.optString("digest", ""))
-                                break
-                            }
-                        }
-                        break
+                        return@withContext parseRelease(rel)
                     }
                 }
 
-                Triple(tag, dlUrl, sha256)
+                ReleaseInfo(null, null, null, null)
             } catch (e: Exception) {
                 Log.w(TAG, "Error fetching latest release info", e)
-                Triple(null, null, null)
+                ReleaseInfo(null, null, null, null)
             }
         }
     }
@@ -2677,6 +2717,42 @@ fun InformacoesTab() {
         } catch (e: Exception) {
             Log.e(TAG, "SHA-256 computation failed", e)
             null
+        }
+    }
+
+    // Alvo do rollback: a release normal (fora draft e prerelease) de maior versão
+    // que seja estritamente MENOR que a instalada. Compara versão a versão em vez de
+    // confiar na ordem do array da API — a ordem não é garantida.
+    suspend fun getPreviousRelease(currentVersion: String): ReleaseInfo? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val currentClean = currentVersion.removePrefix("v")
+                val conn = URL("$UPDATE_REPO/releases?per_page=30").openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("Accept", "application/vnd.github.v3+json")
+                if (conn.responseCode != 200) return@withContext null
+
+                val response = BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() }
+                val releases = JSONArray(response)
+
+                var best: ReleaseInfo? = null
+                var bestTag: String? = null
+                for (i in 0 until releases.length()) {
+                    val rel = releases.getJSONObject(i)
+                    if (rel.optBoolean("draft") || rel.optBoolean("prerelease")) continue
+                    val info = parseRelease(rel)
+                    val tag = info.tag?.removePrefix("v") ?: continue
+                    if (compareVersions(tag, currentClean) >= 0) continue
+                    if (bestTag == null || compareVersions(tag, bestTag) > 0) {
+                        best = info
+                        bestTag = tag
+                    }
+                }
+                best
+            } catch (e: Exception) {
+                Log.w(TAG, "Error fetching previous release", e)
+                null
+            }
         }
     }
 
@@ -2732,6 +2808,43 @@ fun InformacoesTab() {
                 downloadError = e.message ?: "Erro desconhecido"
             }
         }
+    }
+
+    // Envia os logs da versão INSTALADA — quem tem o bug é ela, e a instalação
+    // substitui o processo. Devolve null em caso de sucesso; caso contrário a razão
+    // da falha, para o chamador decidir se continua mesmo assim.
+    suspend fun sendRollbackLogs(): String? {
+        val token = prefs.getString(SharedPreferencesKeys.GITHUB_GIST_TOKEN.key, "") ?: ""
+        if (token.isBlank()) {
+            return "nenhum token do GitHub configurado (aba Diagnóstico)."
+        }
+        return try {
+            val file = withContext(Dispatchers.IO) { DiagnosticsCollector.capture(context, prefs) }
+            val url = withContext(Dispatchers.IO) { GistUploader.upload(file, token) }
+            rollbackLogStatus = "Logs enviados: $url"
+            null
+        } catch (e: GistUploader.UploadException) {
+            Log.e(TAG, "Falha no upload dos logs do rollback (HTTP ${e.code})", e)
+            "falha no envio (HTTP ${e.code})."
+        } catch (e: Exception) {
+            Log.e(TAG, "Falha ao coletar/enviar logs do rollback", e)
+            e.message ?: "erro desconhecido ao coletar os logs."
+        }
+    }
+
+    // Aponta o alvo do update para a release anterior e entrega ao startDownload()
+    // existente — o caminho de download, o SHA-256 e o instalador são os mesmos.
+    fun proceedWithRollback(target: ReleaseInfo) {
+        val url = target.url
+        if (url == null) {
+            rollbackMessage = "A release ${target.tag} não tem APK anexado."
+            showRollbackMessage = true
+            return
+        }
+        latestVersion = target.tag ?: ""
+        downloadUrl = url
+        updateSha256 = target.sha256
+        startDownload()
     }
 
     val scrollState = rememberScrollState()
@@ -2823,7 +2936,10 @@ fun InformacoesTab() {
                     Column {
                         Text("Versão", color = Color(0xFFB0B8C4), fontSize = 14.sp)
                         Text(
-                            version,
+                            // A data vem do build.gradle.kts (BuildConfig), então diz
+                            // quando ESTE apk foi compilado — não é a data da release.
+                            if (buildDate.isBlank()) "v${version.removePrefix("v")}"
+                            else "v${version.removePrefix("v")} · $buildDate",
                             color = Color.White,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Medium,
@@ -2835,49 +2951,110 @@ fun InformacoesTab() {
                                 }
                             }
                         )
+                        if (buildCommit.isNotBlank()) {
+                            Text(
+                                "commit $buildCommit",
+                                color = Color(0xFF8A93A0),
+                                fontSize = 12.sp
+                            )
+                        }
                     }
 
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                val (latest, dlUrl, sha256) = getLatestReleaseInfo(isPreviewVersion)
-                                if (latest != null && dlUrl != null) {
-                                    if (sha256 == null) {
-                                        updateMessage = "Release sem hash SHA-256 — instalação bloqueada por segurança. Adicione \"sha256: <hash>\" no corpo da release."
-                                        showUpdateDialog = true
-                                    } else {
-                                        val currentClean = version.removePrefix("v")
-                                        val latestClean = latest.removePrefix("v")
-                                        // Se a versão atual for 99.99, sempre permitir instalação da versão mais recente
-                                        if (currentClean == "99.99" || compareVersions(latestClean, currentClean) > 0) {
-                                            latestVersion = latest
-                                            downloadUrl = dlUrl
-                                            updateSha256 = sha256
-                                            updateAvailable = true
-                                        } else {
-                                            updateMessage = "Você está na versão mais recente"
+                    Column(horizontalAlignment = Alignment.End) {
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    val release = getLatestReleaseInfo(isPreviewVersion)
+                                    val latest = release.tag
+                                    val dlUrl = release.url
+                                    val sha256 = release.sha256
+                                    if (latest != null && dlUrl != null) {
+                                        if (sha256 == null) {
+                                            updateMessage = "Release sem hash SHA-256 — instalação bloqueada por segurança. Adicione \"sha256: <hash>\" no corpo da release."
                                             showUpdateDialog = true
+                                        } else {
+                                            val currentClean = version.removePrefix("v")
+                                            val latestClean = latest.removePrefix("v")
+                                            // O "99.99" é proposital: releases antigas gravaram esse
+                                            // versionName fixo, e sem esta linha uma instalação antiga
+                                            // nunca conseguiria migrar para uma versão com número real.
+                                            if (currentClean == "99.99" || compareVersions(latestClean, currentClean) > 0) {
+                                                latestVersion = latest
+                                                latestPublished = formatPublishedAt(release.publishedAt)
+                                                downloadUrl = dlUrl
+                                                updateSha256 = sha256
+                                                downloadLabel = "atualização"
+                                                rollbackTarget = null
+                                                rollbackLogStatus = null
+                                                updateAvailable = true
+                                            } else {
+                                                val published = formatPublishedAt(release.publishedAt)
+                                                updateMessage = if (published != null)
+                                                    "Você está na versão mais recente ($latest, publicada em $published)."
+                                                else
+                                                    "Você está na versão mais recente ($latest)."
+                                                showUpdateDialog = true
+                                            }
                                         }
+                                    } else {
+                                        updateMessage = "Erro ao verificar atualizações"
+                                        showUpdateDialog = true
                                     }
-                                } else {
-                                    updateMessage = "Erro ao verificar atualizações"
-                                    showUpdateDialog = true
                                 }
+                            },
+                            modifier = Modifier.height(48.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AppColors.Primary
+                            ),
+                            shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius)
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Buscar Atualizações",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Buscar Atualizações", fontSize = 14.sp)
+                        }
+
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    rollbackBusy = true
+                                    try {
+                                        val target = getPreviousRelease(version)
+                                        if (target == null) {
+                                            rollbackMessage = "Não encontrei nenhuma release anterior à v${version.removePrefix("v")}."
+                                            showRollbackMessage = true
+                                        } else if (target.url == null) {
+                                            rollbackMessage = "A release ${target.tag} não tem APK anexado."
+                                            showRollbackMessage = true
+                                        } else if (target.sha256 == null) {
+                                            // Mesma regra fail-closed do update: sem hash, não instala.
+                                            rollbackMessage = "A release ${target.tag} não anuncia SHA-256 — instalação bloqueada por segurança."
+                                            showRollbackMessage = true
+                                        } else {
+                                            rollbackTarget = target
+                                            showRollbackConfirm = true
+                                        }
+                                    } finally {
+                                        rollbackBusy = false
+                                    }
+                                }
+                            },
+                            enabled = !rollbackBusy,
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF8A93A0))
+                        ) {
+                            if (rollbackBusy) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color(0xFF8A93A0)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                             }
-                        },
-                        modifier = Modifier.height(48.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = AppColors.Primary
-                        ),
-                        shape = RoundedCornerShape(AppDimensions.ButtonCornerRadius)
-                    ) {
-                        Icon(
-                            Icons.Default.Refresh,
-                            contentDescription = "Buscar Atualizações",
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Buscar Atualizações", fontSize = 14.sp)
+                            Text("Voltar para a versão anterior", fontSize = 13.sp)
+                        }
                     }
                 }
 
@@ -3001,7 +3178,12 @@ fun InformacoesTab() {
         AlertDialog(
             onDismissRequest = { updateAvailable = false },
             title = { Text("Atualização disponível: $latestVersion") },
-            text = { Text("Deseja baixar?") },
+            text = {
+                Text(
+                    if (latestPublished != null) "Publicada em $latestPublished. Deseja baixar?"
+                    else "Deseja baixar?"
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     updateAvailable = false
@@ -3021,11 +3203,23 @@ fun InformacoesTab() {
     if (isDownloading) {
         AlertDialog(
             onDismissRequest = {},
-            title = { Text("Baixando atualização") },
+            title = {
+                Text(
+                    if (latestVersion.isNotBlank()) "Baixando $downloadLabel — $latestVersion"
+                    else "Baixando $downloadLabel"
+                )
+            },
             text = {
                 Column {
                     LinearProgressIndicator(progress = { downloadProgress })
                     Text("${(downloadProgress * 100).toInt()}%")
+                    // Resultado do envio dos logs, no caso do rollback. Fica aqui, e não
+                    // num diálogo à parte, para não custar um toque extra num rollback.
+                    val logStatus = rollbackLogStatus
+                    if (logStatus != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(logStatus, fontSize = 12.sp, color = Color(0xFFB0B8C4))
+                    }
                 }
             },
             confirmButton = {
@@ -3054,6 +3248,80 @@ fun InformacoesTab() {
             },
             dismissButton = {
                 TextButton(onClick = { downloadError = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    if (showRollbackMessage) {
+        AlertDialog(
+            onDismissRequest = { showRollbackMessage = false },
+            title = { Text("Rollback indisponível") },
+            text = { Text(rollbackMessage) },
+            confirmButton = {
+                TextButton(onClick = { showRollbackMessage = false }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+    val rollbackTargetNow = rollbackTarget
+
+    if (showRollbackConfirm && rollbackTargetNow != null) {
+        AlertDialog(
+            onDismissRequest = { showRollbackConfirm = false },
+            title = { Text("Voltar para a ${rollbackTargetNow.tag}?") },
+            text = {
+                Text("Os logs da versão instalada (v${version.removePrefix("v")}) serão enviados antes de instalar.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRollbackConfirm = false
+                    downloadLabel = "versão anterior"
+                    rollbackLogStatus = null
+                    scope.launch {
+                        val problem = sendRollbackLogs()
+                        if (problem == null) {
+                            proceedWithRollback(rollbackTargetNow)
+                        } else {
+                            rollbackLogProblem = problem
+                            showRollbackNoLogs = true
+                        }
+                    }
+                }) {
+                    Text("Continuar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRollbackConfirm = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // Sem token ou com o envio falhando, o rollback é a saída de emergência:
+    // avisa e deixa seguir, nunca bloqueia.
+    if (showRollbackNoLogs && rollbackTargetNow != null) {
+        AlertDialog(
+            onDismissRequest = { showRollbackNoLogs = false },
+            title = { Text("Não consegui enviar os logs") },
+            text = {
+                Text("$rollbackLogProblem\n\nContinuar o rollback para a ${rollbackTargetNow.tag} mesmo assim?")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRollbackNoLogs = false
+                    rollbackLogStatus = "Logs não enviados: $rollbackLogProblem"
+                    proceedWithRollback(rollbackTargetNow)
+                }) {
+                    Text("Continuar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRollbackNoLogs = false }) {
                     Text("Cancelar")
                 }
             }
