@@ -3022,20 +3022,30 @@ fun InformacoesTab() {
                                 scope.launch {
                                     rollbackBusy = true
                                     try {
-                                        val target = getPreviousRelease(version)
-                                        if (target == null) {
-                                            rollbackMessage = "Não encontrei nenhuma release anterior à v${version.removePrefix("v")}."
-                                            showRollbackMessage = true
-                                        } else if (target.url == null) {
-                                            rollbackMessage = "A release ${target.tag} não tem APK anexado."
-                                            showRollbackMessage = true
-                                        } else if (target.sha256 == null) {
-                                            // Mesma regra fail-closed do update: sem hash, não instala.
-                                            rollbackMessage = "A release ${target.tag} não anuncia SHA-256 — instalação bloqueada por segurança."
+                                        // "99.99" é o versionName gravado nas releases anteriores à
+                                        // v2.8: a instalação não sabe o próprio número, então não há
+                                        // como saber qual seria a anterior — e o palpite ofereceria
+                                        // reinstalar o mesmo APK, ou pior, subir de versão com o rótulo
+                                        // de "voltar". Melhor recusar e mandar atualizar primeiro.
+                                        if (version.removePrefix("v") == "99.99") {
+                                            rollbackMessage = "Esta versão não informa o próprio número (mostra \"99.99\"), então não dá para saber qual seria a anterior. Use \"Buscar Atualizações\" primeiro — a partir daí a versão na tela passa a ser a de verdade."
                                             showRollbackMessage = true
                                         } else {
-                                            rollbackTarget = target
-                                            showRollbackConfirm = true
+                                            val target = getPreviousRelease(version)
+                                            if (target == null) {
+                                                rollbackMessage = "Não encontrei nenhuma release anterior à v${version.removePrefix("v")}."
+                                                showRollbackMessage = true
+                                            } else if (target.url == null) {
+                                                rollbackMessage = "A release ${target.tag} não tem APK anexado."
+                                                showRollbackMessage = true
+                                            } else if (target.sha256 == null) {
+                                                // Mesma regra fail-closed do update: sem hash, não instala.
+                                                rollbackMessage = "A release ${target.tag} não anuncia SHA-256 — instalação bloqueada por segurança."
+                                                showRollbackMessage = true
+                                            } else {
+                                                rollbackTarget = target
+                                                showRollbackConfirm = true
+                                            }
                                         }
                                     } finally {
                                         rollbackBusy = false
