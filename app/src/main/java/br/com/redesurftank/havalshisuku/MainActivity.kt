@@ -20,6 +20,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -56,6 +57,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeveloperMode
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
@@ -112,10 +114,15 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -131,6 +138,7 @@ import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.listeners.IDataChanged
 import br.com.redesurftank.havalshisuku.managers.AutoBrightnessManager
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
+import br.com.redesurftank.havalshisuku.managers.TripLog
 import br.com.redesurftank.havalshisuku.models.AppInfo
 import br.com.redesurftank.havalshisuku.models.CarConstants
 import br.com.redesurftank.havalshisuku.models.SharedPreferencesKeys
@@ -166,8 +174,10 @@ import java.io.InputStreamReader
 import java.security.MessageDigest
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.DecimalFormat
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.min
@@ -215,6 +225,7 @@ fun MainScreen(modifier: Modifier = Modifier) {
         add(DrawerMenuItem("Instalar Apps", Icons.Default.ShoppingCart))
         add(DrawerMenuItem("Informações", Icons.Default.Info))
         add(DrawerMenuItem("Diagnóstico", Icons.Default.BugReport))
+        add(DrawerMenuItem("Consumo", Icons.Default.LocalGasStation))
         if (advancedUse) {
             add(DrawerMenuItem("Frida Hooks", Icons.Default.Build))
         }
@@ -334,7 +345,8 @@ fun MainScreen(modifier: Modifier = Modifier) {
                         2 -> InstallAppsTab()
                         3 -> InformacoesTab()
                         4 -> DiagnosticsTab()
-                        5 -> FridaHooksTab()
+                        5 -> ConsumoTab()
+                        6 -> FridaHooksTab()
                     }
                 }
             }
@@ -3414,6 +3426,305 @@ private fun restartHeadUnit(): String? {
     }
     return "Não consegui reiniciar: o telnet local não respondeu e o serviço Shizuku " +
         "não está ativo. Use o botão físico de reset."
+}
+
+// --- v2.10: aba "Consumo" -------------------------------------------------------------
+//
+// Uma linha por viagem, gravada no desligamento pelo ServiceManager (ver TripLog). O
+// grafico e desenhado a mao: nao ha biblioteca de graficos nas dependencias e nao vai
+// entrar uma por causa de duas polilinhas.
+
+private val consumoDistanciaColor = Color(0xFFFFB454)
+private val consumoKmPorLitroColor = AppColors.Primary
+
+/** Quantas viagens o grafico mostra. A tabela mostra todas. */
+private const val CONSUMO_JANELA_GRAFICO = 30
+
+@Composable
+fun ConsumoTab() {
+    val context = LocalContext.current
+    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()) }
+    val numberFormat = remember { DecimalFormat("0.0") }
+
+    var trips by remember { mutableStateOf(TripLog.load(context)) }
+    var showClearConfirm by remember { mutableStateOf(false) }
+
+    // Viagem em andamento. Os campos crus sao a SONDA: e olhando eles na primeira viagem
+    // que se descobre se este H6 publica as chaves de viagem e em que escala.
+    var liveDistance by remember { mutableStateOf<String?>(null) }
+    var liveConsumption by remember { mutableStateOf<String?>(null) }
+    var liveOdometerDelta by remember { mutableIntStateOf(-1) }
+    var ignitionOn by remember { mutableStateOf(false) }
+
+    // Sondagem do instantaneo. Escrever o MESMO valor num mutableState nao recompõe nada
+    // (o mutableStateOf compara por igualdade estrutural), entao este laco de 1s custa
+    // praticamente nada parado e mantem a tela viva enquanto o carro anda.
+    LaunchedEffect(Unit) {
+        while (true) {
+            val sm = ServiceManager.getInstance()
+            liveDistance = sm.tripProbeDistance()
+            liveConsumption = sm.tripProbeConsumption()
+            liveOdometerDelta = sm.tripProbeOdometerDelta()
+            ignitionOn = sm.tripProbeIgnitionOn()
+            delay(1000)
+        }
+    }
+
+    // Mais recente primeiro na tabela.
+    val recentes = remember(trips) { trips.asReversed() }
+    val doGrafico = remember(trips) { trips.takeLast(CONSUMO_JANELA_GRAFICO) }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(AppDimensions.ContentPadding),
+        verticalArrangement = Arrangement.spacedBy(AppDimensions.CardSpacing)
+    ) {
+        item {
+            StyledCard {
+                Column(Modifier.padding(AppDimensions.CardPadding)) {
+                    Text("Viagem atual", color = AppColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(10.dp))
+                    if (!ignitionOn) {
+                        Text(
+                            "O carro está desligado. Nova viagem é gravada quando ele desligar.",
+                            color = AppColors.TextSecondary, fontSize = 13.sp
+                        )
+                    } else {
+                        LiveTripRow("Distância (chave do carro)", liveDistance?.let { "$it km" } ?: "não publicada")
+                        LiveTripRow("Consumo (chave do carro)", liveConsumption?.let { "$it km/L" } ?: "não publicado")
+                        LiveTripRow("Distância (pelo odômetro)", if (liveOdometerDelta >= 0) "$liveOdometerDelta km" else "aguardando")
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "As duas distâncias medem a mesma coisa por caminhos diferentes. " +
+                                "Se elas baterem, a chave de viagem do carro existe e está em km.",
+                            color = AppColors.TextDisabled, fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            StyledCard {
+                Column(Modifier.padding(AppDimensions.CardPadding)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Últimas viagens", color = AppColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(12.dp))
+                        LegendDot(consumoKmPorLitroColor, "km/L")
+                        Spacer(Modifier.width(10.dp))
+                        LegendDot(consumoDistanciaColor, "km")
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    if (doGrafico.isEmpty()) {
+                        Text(
+                            "Nenhuma viagem gravada ainda. O histórico começa na primeira vez " +
+                                "que o carro desligar com o aplicativo rodando.",
+                            color = AppColors.TextSecondary, fontSize = 13.sp
+                        )
+                    } else {
+                        ConsumoChart(
+                            trips = doGrafico,
+                            kmPorLitroColor = consumoKmPorLitroColor,
+                            distanciaColor = consumoDistanciaColor
+                        )
+                    }
+                }
+            }
+        }
+
+        if (recentes.isNotEmpty()) {
+            item {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+                    Text("Data", color = AppColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1.4f))
+                    Text("Distância", color = AppColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                    Text("Consumo", color = AppColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                }
+            }
+            items(recentes) { trip ->
+                TripRow(
+                    data = dateFormat.format(Date(trip.startedAt)),
+                    distancia = "${numberFormat.format(trip.distanceKm)} km",
+                    consumo = trip.kmPerLiter?.let { "${numberFormat.format(it)} km/L" } ?: "—",
+                    doOdometro = trip.distanceFromOdometer
+                )
+            }
+            item {
+                Spacer(Modifier.height(4.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { showClearConfirm = true }) {
+                        Text("Limpar histórico", color = AppColors.TextSecondary)
+                    }
+                }
+            }
+        }
+    }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("Limpar histórico de viagens?") },
+            text = { Text("Todas as ${trips.size} viagens gravadas serão apagadas. Isto não pode ser desfeito.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    TripLog.clear(context)
+                    trips = emptyList()
+                    showClearConfirm = false
+                }) { Text("Limpar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) { Text("Cancelar") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun LiveTripRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(label, color = AppColors.TextSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(value, color = AppColors.TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun LegendDot(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(9.dp)
+                .background(color, RoundedCornerShape(50))
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(label, color = AppColors.TextSecondary, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun TripRow(data: String, distancia: String, consumo: String, doOdometro: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 7.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1.4f)) {
+            Text(data, color = AppColors.TextPrimary, fontSize = 13.sp)
+            if (doOdometro) {
+                // Marcado de proposito: e a diferenca entre "o carro mediu" e "o app
+                // derivou do odometro". Some quando o carro passar a informar sozinho.
+                Text("pelo odômetro", color = AppColors.TextDisabled, fontSize = 10.sp)
+            }
+        }
+        Text(distancia, color = consumoDistanciaColor, fontSize = 13.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+        Text(consumo, color = if (consumo == "—") AppColors.TextDisabled else consumoKmPorLitroColor, fontSize = 13.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+    }
+}
+
+/**
+ * Grafico de dois eixos: km/L no eixo ESQUERDO, distancia no DIREITO, uma viagem por
+ * ponto no eixo X (mais antiga a esquerda). Cada serie escala sozinha pelo proprio
+ * min/max — sao grandezas diferentes e compartilhar escala nao diria nada.
+ */
+@Composable
+private fun ConsumoChart(trips: List<TripLog.Trip>, kmPorLitroColor: Color, distanciaColor: Color) {
+    val measurer = rememberTextMeasurer()
+    val labelStyle = remember { TextStyle(fontSize = 10.sp, color = AppColors.TextSecondary) }
+
+    val pontosConsumo = remember(trips) {
+        trips.mapIndexedNotNull { i, t -> t.kmPerLiter?.let { Pair(i, it) } }
+    }
+    val pontosDistancia = remember(trips) {
+        trips.mapIndexed { i, t -> Pair(i, t.distanceKm) }
+    }
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(220.dp)
+    ) {
+        val leftPad = 44.dp.toPx()
+        val rightPad = 44.dp.toPx()
+        val topPad = 10.dp.toPx()
+        val bottomPad = 20.dp.toPx()
+        val plotW = (size.width - leftPad - rightPad).coerceAtLeast(1f)
+        val plotH = (size.height - topPad - bottomPad).coerceAtLeast(1f)
+
+        val n = trips.size
+        fun xOf(index: Int): Float =
+            if (n <= 1) leftPad + plotW / 2f
+            else leftPad + plotW * index.toFloat() / (n - 1).toFloat()
+
+        // Escala de cada serie. Dois casos ruins, os dois reais:
+        // - lista VAZIA: a serie de consumo fica vazia quando NENHUMA viagem tem km/L
+        //   (modulo que nao publica a chave, ou historico curto). min()/max() estourariam.
+        // - min == max: viagem unica, ou todas iguais. Daria divisao por zero.
+        // Nos dois a serie e desenhada no meio da area, em vez de derrubar a aba.
+        fun escala(valores: List<Double>): Pair<Double, Double> {
+            if (valores.isEmpty()) {
+                return Pair(0.0, 1.0)
+            }
+            val min = valores.min()
+            val max = valores.max()
+            return if (max - min < 0.0001) Pair(min - 1.0, max + 1.0) else Pair(min, max)
+        }
+
+        fun yOf(value: Double, esc: Pair<Double, Double>): Float {
+            val frac = ((value - esc.first) / (esc.second - esc.first)).toFloat()
+            return topPad + plotH * (1f - frac.coerceIn(0f, 1f))
+        }
+
+        val escConsumo = escala(pontosConsumo.map { it.second })
+        val escDistancia = escala(pontosDistancia.map { it.second })
+
+        // Grade + rotulos dos dois eixos.
+        val linhas = 4
+        for (i in 0..linhas) {
+            val y = topPad + plotH * i.toFloat() / linhas.toFloat()
+            drawLine(
+                color = AppColors.BorderColor,
+                start = Offset(leftPad, y),
+                end = Offset(leftPad + plotW, y),
+                strokeWidth = 1f
+            )
+            val frac = 1.0 - i.toFloat() / linhas.toFloat()
+            val vConsumo = escConsumo.first + (escConsumo.second - escConsumo.first) * frac
+            val vDistancia = escDistancia.first + (escDistancia.second - escDistancia.first) * frac
+            val tConsumo = measurer.measure(String.format(Locale.US, "%.1f", vConsumo), labelStyle)
+            val tDistancia = measurer.measure(String.format(Locale.US, "%.0f", vDistancia), labelStyle)
+            drawText(
+                textLayoutResult = tConsumo,
+                topLeft = Offset(leftPad - 6.dp.toPx() - tConsumo.size.width, y - tConsumo.size.height / 2f)
+            )
+            drawText(
+                textLayoutResult = tDistancia,
+                topLeft = Offset(leftPad + plotW + 6.dp.toPx(), y - tDistancia.size.height / 2f)
+            )
+        }
+
+        fun desenharSerie(pontos: List<Pair<Int, Double>>, esc: Pair<Double, Double>, cor: Color) {
+            if (pontos.isEmpty()) return
+            if (pontos.size > 1) {
+                val path = Path()
+                pontos.forEachIndexed { idx, (i, v) ->
+                    val x = xOf(i)
+                    val y = yOf(v, esc)
+                    if (idx == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(path = path, color = cor, style = Stroke(width = 2.5.dp.toPx()))
+            }
+            // O ponto so aparece quando ha UMA viagem so, ou quando a serie tem buracos:
+            // com muitos pontos a linha ja diz tudo, e as bolinhas viram sujeira.
+            if (pontos.size <= 12) {
+                pontos.forEach { (i, v) ->
+                    drawCircle(color = cor, radius = 3.5.dp.toPx(), center = Offset(xOf(i), yOf(v, esc)))
+                }
+            }
+        }
+
+        desenharSerie(pontosDistancia, escDistancia, distanciaColor)
+        desenharSerie(pontosConsumo, escConsumo, kmPorLitroColor)
+    }
 }
 
 @Composable

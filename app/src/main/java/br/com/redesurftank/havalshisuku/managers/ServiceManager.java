@@ -116,6 +116,13 @@ public class ServiceManager {
             CarConstants.CAR_EV_INFO_CYCLE_FUEL_CONSUME_INFO,
             CarConstants.CAR_CONFIGURE_PEDAL_CONTROL_ENABLE,
             CarConstants.CAR_BASIC_INSTANT_FUEL_CONSUMPTION,
+            // v2.10: o log de consumo precisa destas duas. O carro ja calcula distancia e
+            // km/L de cada viagem para o cluster, mas o app nunca as tinha assinado — e
+            // enquanto nao estiverem aqui elas simplesmente nao chegam. A distancia tem
+            // plano B (delta do CAR_BASIC_TOTAL_ODOMETER, que ja esta na lista acima); o
+            // consumo nao tem, e fica "—" na tabela se o modulo nao publicar esta chave.
+            CarConstants.CAR_BASIC_CUR_JOURNEY_ODOMETER,
+            CarConstants.CAR_BASIC_CUR_JOURNEY_AVG_FUEL_CONSUME,
     };
 
     private static final CarConstants[] KEYS_TO_SAVE = {
@@ -253,6 +260,22 @@ public class ServiceManager {
     // true = o compressor rodou nesta viagem. So vale como gatilho quem molhou o
     // evaporador; sem compressor nao ha agua para secar.
     private volatile boolean acCompressorRanThisIgnition = false;
+
+    // --- v2.10: log de consumo. Tudo por VIAGEM, com o mesmo ciclo de vida da flag do
+    // compressor acima: marcado na borda ON, fechado na borda OFF. Nada aqui e escrito
+    // no meio da viagem — o valor que interessa e o ultimo que o modulo mandou antes de
+    // o carro desligar, e no OFF pode ser que ele ja tenha zerado as chaves.
+    private volatile long tripStartedAt = 0L;
+    // Odometro total na borda ON. Da a distancia por delta quando a chave de viagem nao
+    // vem, e serve de conferencia de ESCALA quando vem (as duas fontes tem que bater).
+    private volatile int tripStartOdometer = -1;
+    private volatile double liveTripDistance = 0.0;
+    private volatile double liveTripKmPerLiter = 0.0;
+    // "ja chegou alguma vez nesta viagem" — separa "veio 0.0" de "nunca veio", que sao
+    // coisas diferentes: um trajeto parado tem distancia 0.0 de verdade. Tambem e o que
+    // limita o log da sonda a UMA linha por chave por viagem (a transicao false->true).
+    private volatile boolean liveTripDistanceSeen = false;
+    private volatile boolean liveTripConsumptionSeen = false;
     // Janela em que um POWER=1 vindo da secagem NAO deve ligar a ventilacao do banco.
     private volatile long suppressSeatVentBoostUntilElapsed = 0L;
     // Diagnostico H3: so para logar a transicao do engine_state uma vez.
@@ -1105,6 +1128,29 @@ public class ServiceManager {
                     acCompressorRanThisIgnition = true;
                     Log.w(TAG, "[SECAGEM] compressor ligou nesta viagem — secagem ao desligar fica armada");
                 }
+            } else if (key.equals(CarConstants.CAR_BASIC_CUR_JOURNEY_ODOMETER.getValue())) {
+                // v2.10: sonda do log de consumo. So acumula com a ignicao VIVA, pela mesma
+                // razao do ac_enable acima: o modulo continua reportando o estado da viagem
+                // ANTERIOR com o carro desligado, e sem esta guarda a viagem seguinte
+                // nasceria com a distancia da anterior ja embutida.
+                if (!isReadyStateOffNow()) {
+                    Double parsed = parseDoubleOrNull(value);
+                    if (parsed != null && parsed >= 0) {
+                        recordJourneyDistance(parsed);
+                    }
+                }
+            } else if (key.equals(CarConstants.CAR_BASIC_CUR_JOURNEY_AVG_FUEL_CONSUME.getValue())) {
+                if (!isReadyStateOffNow()) {
+                    Double parsed = parseDoubleOrNull(value);
+                    // Estritamente MAIOR que zero, e nao >= como a distancia: 0 km/L nao
+                    // existe fisicamente, entao um zero vindo do modulo e sentinela de
+                    // "sem dado" — e aceita-lo puxaria o eixo do grafico ate o zero e
+                    // desenharia um ponto com cara de medicao real. Na distancia o zero
+                    // e legitimo (ciclo em que o carro nao saiu do lugar).
+                    if (parsed != null && parsed > 0) {
+                        recordJourneyConsumption(parsed);
+                    }
+                }
             } else if (key.equals(CarConstants.CAR_BASIC_ENGINE_STATE.getValue())) {
                 // v2.7 (diagnostico H3): qual dos dois chega primeiro no desligamento, o
                 // ready-state ou o engine_state? So loga transicao, para nao virar spam.
@@ -1162,6 +1208,19 @@ public class ServiceManager {
                     // ordem funciona: a flag so e armada depois, durante a viagem seguinte.
                     if (edge) {
                         acCompressorRanThisIgnition = false;
+                        // v2.10: fecha a viagem AQUI, e nao mais tarde. Duas razoes para
+                        // esta posicao exata:
+                        //
+                        // 1. Depois do maybeStartShutdownDrying (que so POSTA a intencao,
+                        //    nao bloqueia) e antes do bluetooth/ponto de acesso, que falam
+                        //    com o Shizuku e podem levar segundos. A gravacao leva alguns
+                        //    ms; fazer ela antes das chamadas lentas e o que garante que
+                        //    ela chegue ao disco antes de a energia cair.
+                        // 2. FORA do synchronized(readyStateLock) — aquele bloco e memoria
+                        //    pura de proposito (roda no pool do binder e na main thread ao
+                        //    mesmo tempo), e I/O de arquivo ali dentro seria um travamento
+                        //    cruzado entre as duas.
+                        finishTrip();
                     }
                     boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
                     boolean currentBluetoothState = currentBluetoothState();
@@ -1203,6 +1262,9 @@ public class ServiceManager {
                         sawLiveIgnitionThisProcess = true;
                         shutdownDryingConsumedThisIgnition = false;
                         rederiveCompressorFlag();
+                        // v2.10: comeca a viagem do log de consumo. Diferente da flag do
+                        // compressor logo acima, aqui ZERAR e o certo — ver startTrip().
+                        startTrip();
                     }
                     boolean disableBluetoothOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.DISABLE_BLUETOOTH_ON_POWER_OFF.getKey(), false);
                     boolean bluetoothStateOnPowerOff = sharedPreferences.getBoolean(SharedPreferencesKeys.BLUETOOTH_STATE_ON_POWER_OFF.getKey(), false);
@@ -1539,6 +1601,139 @@ public class ServiceManager {
     /** "Desligado" no ready-state: tanto o -1 (tela apagando) quanto o 0. */
     private static boolean isReadyStateOff(String value) {
         return "-1".equals(value) || "0".equals(value);
+    }
+
+    // --- v2.10: log de consumo ---------------------------------------------------------
+    //
+    // Uma viagem = um ciclo liga->desliga, comecando na borda ON e fechando na borda OFF
+    // (as mesmas bordas da secagem, ja testadas). O que se grava e a distancia, o km/L e
+    // o horario; o resto a aba "Consumo" deriva.
+
+    private static Double parseDoubleOrNull(String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Guarda a distancia da viagem em andamento. Chamado a cada entrega da chave.
+     *
+     * O log da sonda sai UMA vez por viagem, na transicao "nunca chegou" -> "chegou":
+     * e o que responde no log de diagnostico se este H6 publica a chave, e com que
+     * escala — a mesma pergunta em aberto do H4 da secagem, e a razao de a sonda estar
+     * embutida na feature em vez de numa release separada.
+     */
+    private void recordJourneyDistance(double value) {
+        final boolean first = !liveTripDistanceSeen;
+        liveTripDistance = value;
+        liveTripDistanceSeen = true;
+        if (first) {
+            Log.w(TAG, "[CONSUMO] sonda: cur_journey_odometer=" + value
+                    + " (odometro total agora=" + getTotalOdometer() + ")");
+        }
+    }
+
+    private void recordJourneyConsumption(double value) {
+        final boolean first = !liveTripConsumptionSeen;
+        liveTripKmPerLiter = value;
+        liveTripConsumptionSeen = true;
+        if (first) {
+            Log.w(TAG, "[CONSUMO] sonda: cur_journey_avg_fuel_consume=" + value);
+        }
+    }
+
+    /**
+     * Comeca uma viagem. Zerar aqui e o certo — e isso DIFERE de proposito da flag do
+     * compressor, que na mesma borda e RE-DERIVADA em vez de zerada (rederiveCompressorFlag).
+     * A diferenca esta na natureza do dado:
+     *
+     * A flag do compressor e um LATCH. So liga observando um evento momentaneo (um push de
+     * ac_enable=1), e zerar apaga informacao que pode nunca mais voltar naquela viagem.
+     *
+     * Ja cur_journey_odometer e cur_journey_avg_fuel_consume sao NIVEIS, republicados o
+     * tempo todo enquanto o carro anda. Zerar na borda custa no maximo uma amostra, e a
+     * proxima chega em segundos. E zerar e o que protege do caso ruim: o valor que estiver
+     * no cache NESTE instante e, na duvida, o da viagem ANTERIOR (o modulo ainda nao
+     * reescreveu), e herda-lo faria a viagem nova nascer com a distancia da velha somada.
+     */
+    private void startTrip() {
+        tripStartedAt = System.currentTimeMillis();
+        liveTripDistance = 0.0;
+        liveTripKmPerLiter = 0.0;
+        liveTripDistanceSeen = false;
+        liveTripConsumptionSeen = false;
+        // Le do cache (memoria). Se o modulo ainda nao mandou o odometro, vem 0 — e ai o
+        // delta do odometro fica inutilizavel para esta viagem, o que finishTrip() detecta
+        // por tripStartOdometer <= 0.
+        tripStartOdometer = getTotalOdometer();
+    }
+
+    /**
+     * Fecha a viagem e grava no historico. Chamado na borda OFF.
+     *
+     * Grava SINCRONO de proposito: e o desligamento, e a energia da central pode cair a
+     * qualquer instante. Sao alguns ms, e por isso a chamada fica antes do
+     * bluetooth/ponto de acesso, que falam com o Shizuku e podem levar segundos.
+     */
+    private void finishTrip() {
+        try {
+            // Sem nunca ter visto uma ignicao viva NESTE processo nao ha viagem para
+            // fechar: e o dispatchAllData() da inicializacao, que entrega o ready-state
+            // OFF de um carro ja parado e cai neste ramo com edge=true. Mesma razao pela
+            // qual sawLiveIgnitionThisProcess existe para a secagem (ver o comentario no
+            // campo) — sem esta guarda, cada subida do servico gravaria uma viagem fantasma.
+            if (!sawLiveIgnitionThisProcess) {
+                return;
+            }
+            final long endedAt = System.currentTimeMillis();
+            final boolean sawDistance = liveTripDistanceSeen;
+            final boolean sawConsumption = liveTripConsumptionSeen;
+            final double journeyDistance = liveTripDistance;
+            final double kmPerLiter = liveTripKmPerLiter;
+
+            boolean distanceFromOdometer = false;
+            double distanceKm = journeyDistance;
+            if (!sawDistance) {
+                // Plano B: delta do odometro total, que ja e assinado e comprovadamente
+                // funciona (e o que alimenta o aviso de revisao). E o que mantem a aba
+                // util mesmo se o modulo nunca publicar a chave de viagem.
+                final int endOdometer = getTotalOdometer();
+                if (tripStartOdometer > 0 && endOdometer >= tripStartOdometer) {
+                    distanceKm = endOdometer - tripStartOdometer;
+                    distanceFromOdometer = true;
+                }
+            }
+
+            // Ciclo em que o modulo nao reportou NADA: nao houve viagem para registrar.
+            // Qualquer outro caso entra, inclusive o ciclo parado com distancia 0.0 — a
+            // decisao do usuario foi registrar todo liga->desliga, sem filtro de minimo.
+            if (!sawDistance && !distanceFromOdometer && !sawConsumption) {
+                Log.w(TAG, "[CONSUMO] viagem descartada: nem distancia nem consumo chegaram");
+                return;
+            }
+
+            TripLog.Trip trip = new TripLog.Trip(
+                    tripStartedAt,
+                    endedAt,
+                    distanceKm,
+                    // null, e nao 0.0: um zero viraria um ponto no grafico e uma linha
+                    // na tabela com cara de medicao, e nao e medicao — o carro nao informou.
+                    sawConsumption ? kmPerLiter : null,
+                    distanceFromOdometer);
+            TripLog.append(App.getContext(), trip);
+            Log.w(TAG, "[CONSUMO] viagem gravada: distancia=" + distanceKm
+                    + (distanceFromOdometer ? " (do odometro)" : " (da chave de viagem)")
+                    + " consumo=" + (sawConsumption ? String.valueOf(kmPerLiter) : "nao informado"));
+        } catch (Exception e) {
+            // Nunca deixar uma excecao aqui derrubar o ramo do desligamento: ele ainda
+            // tem a secagem, o bluetooth e o ponto de acesso para tratar.
+            Log.e(TAG, "Falha ao gravar a viagem", e);
+        }
     }
 
     /**
@@ -2637,6 +2832,38 @@ public class ServiceManager {
             Log.e(TAG, "Error parsing total odometer value: " + totalOdometer, e);
             return 0;
         }
+    }
+
+    // --- v2.10: instantaneo da viagem em andamento, para a aba "Consumo" ----------------
+    //
+    // Sao estes tres que transformam a duvida do H6 em algo que se resolve na primeira
+    // viagem, sem release de sonda: a tela mostra o valor CRU da chave de viagem e o
+    // delta do odometro LADO A LADO. Se as duas fontes concordarem, a chave existe e a
+    // escala e km; se a de viagem vier vazia enquanto o delta anda, o modulo nao publica
+    // a chave, e a aba ja esta funcionando pelo plano B sem ninguem mexer em nada.
+
+    /** Valor cru de cur_journey_odometer, ou null se a chave nao chegou nesta viagem. */
+    public String tripProbeDistance() {
+        return liveTripDistanceSeen ? String.valueOf(liveTripDistance) : null;
+    }
+
+    /** Valor cru de cur_journey_avg_fuel_consume, ou null se nao chegou. */
+    public String tripProbeConsumption() {
+        return liveTripConsumptionSeen ? String.valueOf(liveTripKmPerLiter) : null;
+    }
+
+    /** Distancia percorrida desde a borda ON, pelo odometro total. -1 = indisponivel. */
+    public int tripProbeOdometerDelta() {
+        if (tripStartOdometer <= 0) {
+            return -1;
+        }
+        int now = getTotalOdometer();
+        return now >= tripStartOdometer ? now - tripStartOdometer : -1;
+    }
+
+    /** false = o carro esta desligado; a aba usa para explicar os campos vazios. */
+    public boolean tripProbeIgnitionOn() {
+        return !isReadyStateOffNow();
     }
 
     public void updateMonitoringProperties() {
