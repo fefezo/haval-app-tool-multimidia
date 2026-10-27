@@ -2,6 +2,7 @@ import { stateManager, subscribe } from '../../state.js';
 import { createFocusElementWithChildren } from './focusElement.js';
 import { div, img, span } from '../../utils/createElement.js';
 import { updateProgressRings } from './mainAcControl.js'
+import { bumpValue, createRockerHint } from './rocker.js';
 
 const ionColor = {
     0: '#4d9eff', // on air
@@ -33,7 +34,11 @@ export function createFanElement() {
         src: fanIconSvg(getFanIconColor()),
         className: 'w-48 h-48',
     });
-    
+
+    // Dois chevrons ao lado do valor: o de cima acende ao subir, o de baixo ao
+    // descer. Aparecem apenas quando a area do fan esta focada.
+    const rocker = createRockerHint();
+
     var focusArea = createFocusElementWithChildren({
         className: 'ac-fan-control-area',
         focused: stateManager.get('focusArea') === 'fan',
@@ -56,6 +61,7 @@ export function createFanElement() {
                     }),
                 ],
             }),
+            rocker,
         ],
     });
 
@@ -73,15 +79,20 @@ export function createFanElement() {
         }
     });
 
+    var previousFan = stateManager.get('fan');
     var unsubscribeFan = subscribe('fan', function(newFanSpeed) {
+        var direction = Number(newFanSpeed) >= Number(previousFan) ? 'up' : 'down';
+        previousFan = newFanSpeed;
         speedText.textContent = newFanSpeed;
-        updateProgressRings()
+        updateProgressRings();
+        rocker.flash(direction);
+        bumpValue(speedText, direction);
     });
 
     var unsubsscribeAion = subscribe('aion', function() {
         icon.src = fanIconSvg(getFanIconColor());
     });
-    var unsubsscribeAion = subscribe('power', function() {
+    var unsubscribePower = subscribe('power', function() {
         icon.src = fanIconSvg(getFanIconColor());
     });
 
@@ -89,6 +100,8 @@ export function createFanElement() {
         unsubscribeFocus();
         unsubscribeFan();
         unsubsscribeAion();
+        unsubscribePower();
+        rocker.cleanup();
     };
 
     return focusArea;

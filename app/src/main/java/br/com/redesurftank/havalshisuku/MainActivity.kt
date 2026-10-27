@@ -138,6 +138,7 @@ import br.com.redesurftank.App
 import br.com.redesurftank.havalshisuku.listeners.IDataChanged
 import br.com.redesurftank.havalshisuku.managers.AutoBrightnessManager
 import br.com.redesurftank.havalshisuku.managers.ServiceManager
+import br.com.redesurftank.havalshisuku.managers.TankLog
 import br.com.redesurftank.havalshisuku.managers.TripLog
 import br.com.redesurftank.havalshisuku.models.AppInfo
 import br.com.redesurftank.havalshisuku.models.CarConstants
@@ -148,6 +149,7 @@ import br.com.redesurftank.havalshisuku.ui.components.AppDimensions
 import br.com.redesurftank.havalshisuku.ui.components.SettingCard
 import br.com.redesurftank.havalshisuku.ui.components.SettingItem
 import br.com.redesurftank.havalshisuku.ui.components.StyledCard
+import br.com.redesurftank.havalshisuku.ui.components.StyledTextField
 import br.com.redesurftank.havalshisuku.ui.components.TwoColumnSettingsLayout
 import br.com.redesurftank.havalshisuku.ui.theme.HavalShisukuTheme
 import br.com.redesurftank.havalshisuku.utils.DiagnosticsCollector
@@ -2061,7 +2063,22 @@ fun InstallAppsTab() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(true) }
-    var apps by remember { mutableStateOf(listOf<AppInfo>()) }
+    // Apps que viajam dentro do APK do Impulse: aparecem mesmo sem internet e
+    // são instalados direto de res/raw. Para atualizar o DP-X10, troque o
+    // arquivo em res/raw e a `version` aqui.
+    val bundledApps = remember {
+        listOf(
+            AppInfo(
+                name = "Sennuopu DP-X10",
+                version = "1.0", // versionName real do manifest (o arquivo do fabricante diz V0.0.4)
+                packageName = "com.nisson.x10.cne",
+                link = "",
+                iconResId = R.drawable.dpx10_icon,
+                bundledResourceId = R.raw.sennuopu_dp_x10
+            )
+        )
+    }
+    var apps by remember { mutableStateOf(bundledApps) }
     var downloadingApp by remember { mutableStateOf<String?>(null) }
     var downloadProgress by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
     val pm = context.packageManager
@@ -2099,7 +2116,10 @@ fun InstallAppsTab() {
                         // Debug log
                         Log.d(TAG, "App: ${obj.getString("appName")}, Icon URL: $iconUrl")
                     }
-                    apps = appList
+                    // O catálogo remoto não substitui os apps embutidos: se o
+                    // apps.json repetir o mesmo package, vale o que está no Impulse.
+                    val bundledPackages = bundledApps.map { it.packageName }.toSet()
+                    apps = bundledApps + appList.filter { it.packageName !in bundledPackages }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading apps", e)
@@ -2129,42 +2149,55 @@ fun InstallAppsTab() {
         return parts1.size.compareTo(parts2.size)
     }
 
+    // Abre o instalador do Android para um APK já presente no disco. Usado tanto
+    // pelo download remoto quanto pelo APK embutido do DP-X10.
+    fun installApk(file: File) {
+        if (!pm.canRequestPackageInstalls()) {
+            showPermissionDialog = true
+            return
+        }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    }
+
     fun startDownload(app: AppInfo) {
         downloadingApp = app.packageName
         downloadProgress = downloadProgress.toMutableMap().apply { put(app.packageName, 0f) }
         scope.launch(Dispatchers.IO) {
             try {
                 val file = File(context.getExternalFilesDir(null), "${app.packageName}.apk")
-                val url = URL(app.link)
-                val conn = url.openConnection() as HttpURLConnection
-                val length = conn.contentLength
-                val input = BufferedInputStream(conn.inputStream)
-                val output = FileOutputStream(file)
-                val buffer = ByteArray(4096)
-                var bytesRead: Int
-                var total = 0
-                while (input.read(buffer).also { bytesRead = it } != -1) {
-                    output.write(buffer, 0, bytesRead)
-                    total += bytesRead
-                    if (length > 0) {
-                        downloadProgress = downloadProgress.toMutableMap().apply { put(app.packageName, total.toFloat() / length) }
+                val bundledResourceId = app.bundledResourceId
+                if (bundledResourceId != null) {
+                    // Embutido no Impulse: copia de res/raw, sem rede.
+                    context.resources.openRawResource(bundledResourceId).use { input ->
+                        FileOutputStream(file).use { output -> input.copyTo(output) }
                     }
+                    downloadProgress = downloadProgress.toMutableMap().apply { put(app.packageName, 1f) }
+                } else {
+                    val url = URL(app.link)
+                    val conn = url.openConnection() as HttpURLConnection
+                    val length = conn.contentLength
+                    val input = BufferedInputStream(conn.inputStream)
+                    val output = FileOutputStream(file)
+                    val buffer = ByteArray(4096)
+                    var bytesRead: Int
+                    var total = 0
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        total += bytesRead
+                        if (length > 0) {
+                            downloadProgress = downloadProgress.toMutableMap().apply { put(app.packageName, total.toFloat() / length) }
+                        }
+                    }
+                    output.close()
+                    input.close()
                 }
-                output.close()
-                input.close()
-                withContext(Dispatchers.Main) {
-                    if (!pm.canRequestPackageInstalls()) {
-                        showPermissionDialog = true
-                        return@withContext
-                    }
-                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
-                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(uri, "application/vnd.android.package-archive")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(intent)
-                }
+                withContext(Dispatchers.Main) { installApk(file) }
             } catch (e: Exception) {
                 Log.e(TAG, "Download failed", e)
             } finally {
@@ -2307,178 +2340,187 @@ fun InstallAppsTab() {
                     )
                 }
             }
-        } else {
-            // Apps Grid - Ordenados por prioridade: Atualizar > Instalar > Instalados
-            // Dentro de cada grupo, ordena alfabeticamente
-            val sortedApps = apps.sortedWith(
-                compareBy(
-                    { app ->
-                        val installedVersion = getInstalledVersion(app.packageName)
-                        val isInstalled = installedVersion != null
-                        val needsUpdate = isInstalled && compareVersions(installedVersion, app.version) < 0
+        }
 
-                        when {
-                            needsUpdate -> 0  // Prioridade máxima: precisa atualizar
-                            !isInstalled -> 1 // Segunda prioridade: disponível para instalar
-                            else -> 2         // Última prioridade: já instalado e atualizado
-                        }
-                    },
-                    { app -> app.name.lowercase() } // Ordenação alfabética dentro de cada grupo
-                ))
+        // Apps Grid - Ordenados por prioridade: Atualizar > Instalar > Instalados
+        // Dentro de cada grupo, ordena alfabeticamente. Renderizado também durante
+        // o carregamento: os apps embutidos já estão em `apps` e não esperam a rede.
+        val sortedApps = apps.sortedWith(
+            compareBy(
+                { app ->
+                    val installedVersion = getInstalledVersion(app.packageName)
+                    val isInstalled = installedVersion != null
+                    val needsUpdate = isInstalled && compareVersions(installedVersion, app.version) < 0
 
-            gridItems(sortedApps) { app ->
-                val installedVersion = getInstalledVersion(app.packageName)
-                val isInstalled = installedVersion != null
-                val needsUpdate = isInstalled && compareVersions(installedVersion, app.version) < 0
-                val progress = downloadProgress[app.packageName] ?: 0f
+                    when {
+                        needsUpdate -> 0  // Prioridade máxima: precisa atualizar
+                        !isInstalled -> 1 // Segunda prioridade: disponível para instalar
+                        else -> 2         // Última prioridade: já instalado e atualizado
+                    }
+                },
+                { app -> app.name.lowercase() } // Ordenação alfabética dentro de cada grupo
+            ))
 
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1.2f)
-                        .padding(vertical = 16.dp, horizontal = 16.dp)
-                        .border(
-                            width = 1.dp,
-                            color = Color(0xFF1D2430),
-                            shape = RoundedCornerShape(0.dp),
-                        ),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFF13151A)
+        gridItems(sortedApps) { app ->
+            val installedVersion = getInstalledVersion(app.packageName)
+            val isInstalled = installedVersion != null
+            val needsUpdate = isInstalled && compareVersions(installedVersion, app.version) < 0
+            val progress = downloadProgress[app.packageName] ?: 0f
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1.2f)
+                    .padding(vertical = 16.dp, horizontal = 16.dp)
+                    .border(
+                        width = 1.dp,
+                        color = Color(0xFF1D2430),
+                        shape = RoundedCornerShape(0.dp),
                     ),
-                    shape = RoundedCornerShape(12.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF13151A)
+                ),
+                shape = RoundedCornerShape(12.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.SpaceBetween
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        // App Icon Container with padding
+                        Box(
+                            modifier = Modifier.size(80.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            // App Icon Container with padding
-                            Box(
-                                modifier = Modifier.size(80.dp),
-                                contentAlignment = Alignment.Center
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(8.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFF2A2F37)
                             ) {
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(8.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xFF2A2F37)
-                                ) {
-                                    if (!app.iconUrl.isNullOrEmpty()) {
-                                        AsyncImage(
-                                            model = ImageRequest.Builder(context)
-                                                .data(app.iconUrl)
-                                                .crossfade(true)
-                                                .diskCachePolicy(CachePolicy.ENABLED)
-                                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                                .allowHardware(false)
-                                                .build(),
-                                            contentDescription = app.name,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop,
-                                            onError = {
-                                                Log.e(TAG, "Error loading icon for ${app.name}: ${it.result.throwable}")
-                                            }
-                                        )
-                                    } else {
-                                        Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier.fillMaxSize()
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Build,
-                                                contentDescription = app.name,
-                                                tint = Color(0xFF4A9EFF),
-                                                modifier = Modifier.size(32.dp)
-                                            )
+                                val iconResId = app.iconResId
+                                if (iconResId != null) {
+                                    Image(
+                                        painter = painterResource(iconResId),
+                                        contentDescription = app.name,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else if (!app.iconUrl.isNullOrEmpty()) {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data(app.iconUrl)
+                                            .crossfade(true)
+                                            .diskCachePolicy(CachePolicy.ENABLED)
+                                            .memoryCachePolicy(CachePolicy.ENABLED)
+                                            .allowHardware(false)
+                                            .build(),
+                                        contentDescription = app.name,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop,
+                                        onError = {
+                                            Log.e(TAG, "Error loading icon for ${app.name}: ${it.result.throwable}")
                                         }
+                                    )
+                                } else {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Build,
+                                            contentDescription = app.name,
+                                            tint = Color(0xFF4A9EFF),
+                                            modifier = Modifier.size(32.dp)
+                                        )
                                     }
                                 }
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            // App Name
-                            Text(
-                                app.name,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color.White,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center,
-                                lineHeight = 18.sp
-                            )
-
-                            // Version info
-                            Text(
-                                "v${app.version}",
-                                fontSize = 12.sp,
-                                color = Color(0xFFB0B8C4),
-                                lineHeight = 14.sp
-                            )
-
-                            if (isInstalled) {
-                                Text(
-                                    "Inst: v${installedVersion}",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFF808080),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    lineHeight = 12.sp
-                                )
                             }
                         }
 
-                        // Action Button Section
-                        Column(
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            if (downloadingApp == app.packageName) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    LinearProgressIndicator(
-                                        progress = { progress },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(2.dp),
-                                        color = Color(0xFF4A9EFF),
-                                        trackColor = Color(0xFF3A3F47)
-                                    )
-                                    Text(
-                                        "${(progress * 100).toInt()}%",
-                                        color = Color.White,
-                                        fontSize = 12.sp
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // App Name
+                        Text(
+                            app.name,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+
+                        // Version info
+                        Text(
+                            "v${app.version}",
+                            fontSize = 12.sp,
+                            color = Color(0xFFB0B8C4),
+                            lineHeight = 14.sp
+                        )
+
+                        if (isInstalled) {
+                            Text(
+                                "Inst: v${installedVersion}",
+                                fontSize = 11.sp,
+                                color = Color(0xFF808080),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                lineHeight = 12.sp
+                            )
+                        }
+                    }
+
+                    // Action Button Section
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (downloadingApp == app.packageName) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                LinearProgressIndicator(
+                                    progress = { progress },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(2.dp),
+                                    color = Color(0xFF4A9EFF),
+                                    trackColor = Color(0xFF3A3F47)
+                                )
+                                Text(
+                                    "${(progress * 100).toInt()}%",
+                                    color = Color.White,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        } else {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                // Botão principal (Instalar ou Atualizar)
+                                if (!isInstalled || needsUpdate) {
+                                    AppActionButton(
+                                        text = if (!isInstalled) "Instalar" else "Atualizar",
+                                        onClick = { startDownload(app) },
+                                        isPrimary = true
                                     )
                                 }
-                            } else {
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    // Botão principal (Instalar ou Atualizar)
-                                    if (!isInstalled || needsUpdate) {
-                                        AppActionButton(
-                                            text = if (!isInstalled) "Instalar" else "Atualizar",
-                                            onClick = { startDownload(app) },
-                                            isPrimary = true
-                                        )
-                                    }
 
-                                    // Botão de desinstalar
-                                    if (isInstalled) {
-                                        AppActionButton(
-                                            text = "Desinstalar",
-                                            onClick = { uninstall(app.packageName) },
-                                            isPrimary = false
-                                        )
-                                    }
+                                // Botão de desinstalar
+                                if (isInstalled) {
+                                    AppActionButton(
+                                        text = "Desinstalar",
+                                        onClick = { uninstall(app.packageName) },
+                                        isPrimary = false
+                                    )
                                 }
                             }
                         }
@@ -3440,8 +3482,46 @@ private val consumoKmPorLitroColor = AppColors.Primary
 /** Quantas viagens o grafico mostra. A tabela mostra todas. */
 private const val CONSUMO_JANELA_GRAFICO = 30
 
+/**
+ * Aba "Consumo". Duas visoes: as viagens (uma linha por ciclo liga->desliga) e os
+ * tanques (um trecho por abastecimento). O seletor fica aqui para as duas usarem o
+ * mesmo espaco e nao virarem dois itens no menu lateral.
+ */
 @Composable
 fun ConsumoTab() {
+    var subTab by remember { mutableIntStateOf(0) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(AppDimensions.ContentPadding)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            AppActionButton(
+                text = "Viagens",
+                onClick = { subTab = 0 },
+                isPrimary = subTab == 0,
+                modifier = Modifier.weight(1f)
+            )
+            AppActionButton(
+                text = "Tanques",
+                onClick = { subTab = 1 },
+                isPrimary = subTab == 1,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (subTab == 0) ConsumoViagensTab() else ConsumoTanquesTab()
+        }
+    }
+}
+
+@Composable
+private fun ConsumoViagensTab() {
     val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()) }
     val numberFormat = remember { DecimalFormat("0.0") }
@@ -3475,9 +3555,7 @@ fun ConsumoTab() {
     val doGrafico = remember(trips) { trips.takeLast(CONSUMO_JANELA_GRAFICO) }
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(AppDimensions.ContentPadding),
+        modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(AppDimensions.CardSpacing)
     ) {
         item {
@@ -3576,6 +3654,476 @@ fun ConsumoTab() {
                 TextButton(onClick = { showClearConfirm = false }) { Text("Cancelar") }
             }
         )
+    }
+}
+
+// --- Consumo por tanque -------------------------------------------------------------
+//
+// O carro nao informa litros: informa o nivel em % e a autonomia. O TankLog guarda
+// um registro por trecho entre abastecimentos e estima os litros pela variacao do
+// nivel (60 L de capacidade). O valor nao e o da bomba, mas e a MESMA regua para
+// todos os tanques — que e o que permite comparar um posto com outro.
+
+private data class PostoResumo(
+    val nome: String,
+    val tanques: Int,
+    val km: Double,
+    val litros: Double
+) {
+    val kmPorLitro: Double get() = km / litros
+}
+
+@Composable
+private fun ConsumoTanquesTab() {
+    val context = LocalContext.current
+    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()) }
+    val numberFormat = remember { DecimalFormat("0.0") }
+    val percentFormat = remember { DecimalFormat("0.#") }
+    val wholeFormat = remember { DecimalFormat("0") }
+
+    var state by remember { mutableStateOf(TankLog.loadState(context)) }
+    var fileStamp by remember { mutableLongStateOf(TankLog.lastModified(context)) }
+
+    var liveFuel by remember { mutableStateOf(-1.0) }
+    var liveRange by remember { mutableIntStateOf(-1) }
+    var liveOdometer by remember { mutableIntStateOf(0) }
+    var ignitionOn by remember { mutableStateOf(false) }
+
+    var editingStartedAt by remember { mutableStateOf<Long?>(null) }
+    var editingStation by remember { mutableStateOf("") }
+    var showClearConfirm by remember { mutableStateOf(false) }
+
+    // O arquivo e a fonte da verdade: o ServiceManager grava nele quando detecta um
+    // abastecimento, inclusive com esta tela fechada. Reler so quando o mtime muda
+    // evita parsear o JSON a cada segundo; o nivel e a autonomia vivos vem do cache
+    // do ServiceManager.
+    LaunchedEffect(Unit) {
+        while (true) {
+            val stamp = TankLog.lastModified(context)
+            if (stamp != fileStamp) {
+                state = TankLog.loadState(context)
+                fileStamp = stamp
+            }
+            val sm = ServiceManager.getInstance()
+            liveFuel = sm.getRemainingFuelPercent()
+            liveRange = sm.getRemainingRangeKm()
+            liveOdometer = sm.getTotalOdometer()
+            ignitionOn = sm.tripProbeIgnitionOn()
+            delay(1000)
+        }
+    }
+
+    val openTank = state.openTank()
+    val closedTanks = remember(state) {
+        state.tanks.filter { it.endedAt != 0L }.asReversed()
+    }
+    val resumosPostos = remember(state) {
+        state.tanks
+            .filter { tank ->
+                tank.endedAt != 0L &&
+                    !tank.station.isNullOrBlank() &&
+                    (tank.litersUsed ?: 0.0) > 0.0 &&
+                    tank.distanceKm > 0.0
+            }
+            // Nome do posto e digitado a mao: agrupa sem diferenciar maiuscula de
+            // minuscula para "Shell Centro" e "shell centro" nao virarem dois postos.
+            // Mostra a grafia do registro mais recente.
+            .groupBy { it.station.trim().lowercase(Locale.getDefault()) }
+            .map { (_, lista) ->
+                PostoResumo(
+                    nome = lista.last().station.trim(),
+                    tanques = lista.size,
+                    km = lista.sumOf { it.distanceKm },
+                    litros = lista.sumOf { it.litersUsed ?: 0.0 }
+                )
+            }
+            .filter { it.litros > 0.0 }
+            .sortedByDescending { it.kmPorLitro }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(AppDimensions.CardSpacing)
+    ) {
+        item {
+            StyledCard {
+                Column(Modifier.padding(AppDimensions.CardPadding)) {
+                    if (openTank == null) {
+                        Text("Tanque atual", color = AppColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "O acompanhamento começa na primeira leitura do nível de combustível em 0–100%. " +
+                                "Se esta tela continuar vazia com o carro ligado, o módulo não está " +
+                                "publicando o nível no barramento (ou publica em outra escala — veja " +
+                                "o log [TANQUE]).",
+                            color = AppColors.TextSecondary, fontSize = 13.sp
+                        )
+                        if (liveFuel > 0.0) {
+                            Spacer(Modifier.height(8.dp))
+                            TanqueDetalhe(
+                                "Nível lido agora",
+                                "${percentFormat.format(liveFuel)}% · ≈ " +
+                                    "${numberFormat.format(liveFuel * TankLog.TANK_CAPACITY_LITERS / 100.0)} L"
+                            )
+                        }
+                    } else {
+                        val station = openTank.station.orEmpty().trim()
+                        val liveFuelValid = liveFuel > 0.0 && liveFuel <= 100.0
+                        val fuelNow = if (liveFuelValid) liveFuel else openTank.currentFuelPercent
+                        val distanceNow = if (liveOdometer > 0 && openTank.startOdometer > 0 &&
+                            liveOdometer >= openTank.startOdometer
+                        ) {
+                            (liveOdometer - openTank.startOdometer).toDouble()
+                        } else {
+                            0.0
+                        }
+                        val litersUsedNow = ((openTank.startFuelPercent - fuelNow).coerceAtLeast(0.0)) *
+                            TankLog.TANK_CAPACITY_LITERS / 100.0
+                        val kmPerLiterNow = if (distanceNow > 0.0 && litersUsedNow > 0.1) {
+                            distanceNow / litersUsedNow
+                        } else {
+                            null
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Tanque atual", color = AppColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    if (openTank.litersAdded != null) {
+                                        "Abastecimento de ${dateFormat.format(Date(openTank.startedAt))}"
+                                    } else {
+                                        "Acompanhamento desde ${dateFormat.format(Date(openTank.startedAt))}"
+                                    },
+                                    color = AppColors.TextDisabled, fontSize = 11.sp
+                                )
+                            }
+                            TextButton(onClick = {
+                                editingStartedAt = openTank.startedAt
+                                editingStation = station
+                            }) {
+                                Text(
+                                    if (station.isEmpty()) "Definir posto" else station,
+                                    color = AppColors.Primary,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.width(150.dp),
+                                    textAlign = TextAlign.End
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(18.dp)
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Distância", color = AppColors.TextSecondary, fontSize = 11.sp)
+                                Text(
+                                    "${wholeFormat.format(distanceNow)} km",
+                                    color = consumoDistanciaColor, fontSize = 24.sp, fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text("Consumo estimado", color = AppColors.TextSecondary, fontSize = 11.sp)
+                                Text(
+                                    kmPerLiterNow?.let { "${numberFormat.format(it)} km/L" } ?: "—",
+                                    color = if (kmPerLiterNow == null) AppColors.TextDisabled else consumoKmPorLitroColor,
+                                    fontSize = 24.sp, fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        TanqueDetalhe(
+                            "Nível agora",
+                            "${percentFormat.format(fuelNow)}% · ≈ " +
+                                "${numberFormat.format(fuelNow * TankLog.TANK_CAPACITY_LITERS / 100.0)} L"
+                        )
+                        TanqueDetalhe(
+                            "Autonomia no início",
+                            if (openTank.startRangeKm > 0) "${openTank.startRangeKm} km" else "não informada"
+                        )
+                        TanqueDetalhe(
+                            "Autonomia agora",
+                            if (liveRange > 0) "$liveRange km" else "não informada"
+                        )
+                        openTank.litersAdded?.let { litros ->
+                            TanqueDetalhe("Abastecido no início", "≈ ${numberFormat.format(litros)} L")
+                        }
+                        if (!ignitionOn) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Carro desligado — valores da última leitura.",
+                                color = AppColors.TextDisabled, fontSize = 10.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (resumosPostos.isNotEmpty()) {
+            item {
+                StyledCard {
+                    Column(Modifier.padding(AppDimensions.CardPadding)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.LocalGasStation,
+                                contentDescription = null,
+                                tint = AppColors.Primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Comparativo por posto", color = AppColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Consumo médio dos tanques abastecidos em cada posto, do melhor para o pior. " +
+                                "Use o mesmo nome para o mesmo lugar.",
+                            color = AppColors.TextSecondary, fontSize = 11.sp
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        resumosPostos.forEachIndexed { index, resumo ->
+                            PostoResumoRow(index, resumo, numberFormat, wholeFormat)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Estimativa: litros = variação do nível × ${wholeFormat.format(TankLog.TANK_CAPACITY_LITERS)} L. " +
+                                "Compare postos com 2 ou mais tanques.",
+                            color = AppColors.TextDisabled, fontSize = 10.sp
+                        )
+                    }
+                }
+            }
+        } else if (closedTanks.isNotEmpty()) {
+            item {
+                StyledCard {
+                    Column(Modifier.padding(AppDimensions.CardPadding)) {
+                        Text("Comparativo por posto", color = AppColors.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Toque em um tanque abaixo e dê um nome ao posto para comparar o consumo " +
+                                "entre abastecimentos.",
+                            color = AppColors.TextSecondary, fontSize = 13.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        if (closedTanks.isNotEmpty()) {
+            item {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+                    Text("Data / posto", color = AppColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1.4f))
+                    Text("Distância", color = AppColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(0.8f), textAlign = TextAlign.End)
+                    Text("Consumo", color = AppColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(0.9f), textAlign = TextAlign.End)
+                }
+            }
+            items(closedTanks) { tank ->
+                TanqueRow(
+                    tank = tank,
+                    data = dateFormat.format(Date(tank.startedAt)),
+                    numberFormat = numberFormat,
+                    wholeFormat = wholeFormat,
+                    onEdit = {
+                        editingStartedAt = tank.startedAt
+                        editingStation = tank.station.orEmpty()
+                    }
+                )
+            }
+        } else if (openTank != null) {
+            item {
+                StyledCard {
+                    Column(Modifier.padding(AppDimensions.CardPadding)) {
+                        Text(
+                            "O primeiro tanque aparece quando o próximo abastecimento for detectado. " +
+                                "O tanque atual já está sendo acompanhado acima.",
+                            color = AppColors.TextSecondary, fontSize = 13.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        if (openTank != null || closedTanks.isNotEmpty()) {
+            item {
+                Spacer(Modifier.height(4.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { showClearConfirm = true }) {
+                        Text("Limpar histórico de tanques", color = AppColors.TextSecondary)
+                    }
+                }
+            }
+        }
+    }
+
+    if (editingStartedAt != null) {
+        AlertDialog(
+            onDismissRequest = { editingStartedAt = null },
+            title = { Text("Posto do abastecimento") },
+            text = {
+                Column {
+                    Text(
+                        "O consumo é comparado entre tanques do mesmo posto. Use o mesmo nome " +
+                            "para o mesmo lugar.",
+                        color = AppColors.TextSecondary, fontSize = 13.sp
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    StyledTextField(
+                        value = editingStation,
+                        onValueChange = { editingStation = it },
+                        label = { Text("Nome do posto") }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val startedAt = editingStartedAt
+                    if (startedAt != null) {
+                        TankLog.setStation(context, startedAt, editingStation)
+                        state = TankLog.loadState(context)
+                        fileStamp = TankLog.lastModified(context)
+                    }
+                    editingStartedAt = null
+                }) { Text("Salvar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingStartedAt = null }) { Text("Cancelar") }
+            }
+        )
+    }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("Limpar histórico de tanques?") },
+            text = {
+                Text(
+                    "Todos os tanques e nomes de postos serão apagados. O acompanhamento " +
+                        "recomeça na próxima leitura de nível."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    TankLog.clear(context)
+                    state = TankLog.loadState(context)
+                    fileStamp = TankLog.lastModified(context)
+                    showClearConfirm = false
+                }) { Text("Limpar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) { Text("Cancelar") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun TanqueDetalhe(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Text(label, color = AppColors.TextSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        Text(value, color = AppColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun PostoResumoRow(
+    posicao: Int,
+    resumo: PostoResumo,
+    numberFormat: DecimalFormat,
+    wholeFormat: DecimalFormat
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            "${posicao + 1}º",
+            color = if (posicao == 0) AppColors.Primary else AppColors.TextDisabled,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.width(34.dp)
+        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                resumo.nome,
+                color = AppColors.TextPrimary,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "${resumo.tanques} tanque${if (resumo.tanques > 1) "s" else ""} · " +
+                    "${wholeFormat.format(resumo.km)} km",
+                color = AppColors.TextDisabled,
+                fontSize = 10.sp
+            )
+        }
+        Text(
+            "${numberFormat.format(resumo.kmPorLitro)} km/L",
+            color = if (posicao == 0) AppColors.Primary else AppColors.TextSecondary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun TanqueRow(
+    tank: TankLog.Tank,
+    data: String,
+    numberFormat: DecimalFormat,
+    wholeFormat: DecimalFormat,
+    onEdit: () -> Unit
+) {
+    val station = tank.station.orEmpty().trim()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onEdit)
+            .padding(vertical = 8.dp, horizontal = 4.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1.4f)) {
+                Text(data, color = AppColors.TextPrimary, fontSize = 13.sp)
+                Text(
+                    if (station.isEmpty()) "Sem posto — toque para definir" else station,
+                    color = if (station.isEmpty()) AppColors.TextDisabled else AppColors.Primary,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Text(
+                "${wholeFormat.format(tank.distanceKm)} km",
+                color = consumoDistanciaColor,
+                fontSize = 13.sp,
+                modifier = Modifier.weight(0.8f),
+                textAlign = TextAlign.End
+            )
+            Text(
+                tank.kmPerLiter?.let { "${numberFormat.format(it)} km/L" } ?: "—",
+                color = if (tank.kmPerLiter == null) AppColors.TextDisabled else consumoKmPorLitroColor,
+                fontSize = 13.sp,
+                modifier = Modifier.weight(0.9f),
+                textAlign = TextAlign.End
+            )
+        }
+        val detalhes = buildList {
+            tank.litersUsed?.let { add("≈ ${numberFormat.format(it)} L") }
+            if (tank.startRangeKm > 0) add("autonomia ${wholeFormat.format(tank.startRangeKm)} km")
+            if (tank.startRangeKm > 0 && tank.distanceKm > 0.0) {
+                add("${wholeFormat.format(100.0 * tank.distanceKm / tank.startRangeKm)}% da autonomia")
+            }
+        }
+        if (detalhes.isNotEmpty()) {
+            Text(
+                detalhes.joinToString(" · "),
+                color = AppColors.TextDisabled,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(top = 3.dp)
+            )
+        }
     }
 }
 

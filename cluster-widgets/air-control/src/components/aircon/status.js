@@ -1,5 +1,6 @@
 import { stateManager, subscribe } from '../../state.js';
 import { div, img, span } from '../../utils/createElement.js';
+import { createRockerHint } from './rocker.js';
 
 var dryIcon = "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path fill="#eaa33e" d="M32 4C32 4 12 28 12 42c0 11 9 18 20 18s20-7 20-18C52 28 32 4 32 4z"/></svg>');
 
@@ -21,6 +22,60 @@ var formatSeconds = function (seconds) {
     return m + ':' + (s < 10 ? '0' + s : s);
 };
 
+// Circulacao como uma CHAVE de duas posicoes: externo em cima, interno embaixo.
+// O botao do volante nao manda "cima" ou "baixo" (as duas direcoes alternam o
+// mesmo estado), mas o knob desliza para a posicao que o novo estado ocupa. E o
+// mesmo gesto mental de uma chave fisica.
+function createCirculationRocker(isInternal) {
+    var element = div({ className: 'circ-rocker' });
+    var knob = div({ className: 'circ-rocker-knob' });
+    var externalOption = div({
+        className: 'circ-rocker-option circ-rocker-external',
+        children: [img({ src: externalIcon, className: 'w-24 h-24' })],
+    });
+    var internalOption = div({
+        className: 'circ-rocker-option circ-rocker-internal',
+        children: [img({ src: internalIcon, className: 'w-24 h-24' })],
+    });
+
+    element.appendChild(knob);
+    element.appendChild(externalOption);
+    element.appendChild(internalOption);
+
+    var pulseTimer = 0;
+
+    function apply(internal, animate) {
+        element.classList.toggle('internal', internal);
+        externalOption.classList.toggle('active', !internal);
+        internalOption.classList.toggle('active', internal);
+
+        if (!animate) {
+            return;
+        }
+        if (pulseTimer) {
+            clearTimeout(pulseTimer);
+        }
+        element.classList.remove('pulse');
+        void element.offsetWidth;
+        element.classList.add('pulse');
+        pulseTimer = setTimeout(function () {
+            element.classList.remove('pulse');
+        }, 480);
+    }
+
+    apply(isInternal, false);
+
+    return {
+        element: element,
+        apply: apply,
+        cleanup: function () {
+            if (pulseTimer) {
+                clearTimeout(pulseTimer);
+            }
+        },
+    };
+}
+
 export function createStatusElement() {
     const isAutoOn = stateManager.get('auto') === 1;
     // H6: car.hvac.cycle_mode é INVERTIDO vs AOSP — 1 = ar externo (fresh air), 0 = interna
@@ -33,10 +88,8 @@ export function createStatusElement() {
         src: autoModeIcon(isAutoOn ? '#4d9eff' : '#9ca3af'),
         className: 'w-32 h-32',
     });
-    var recycleIconElement = img({
-        src: isRecycleIn ? internalIcon : externalIcon,
-        className: 'w-54 h-54',
-    });
+    var circulation = createCirculationRocker(isRecycleIn);
+    var defaultRocker = createRockerHint();
 
     var autoModeLabel = span({
         src: autoModeIcon(isAutoOn ? '#4d9eff' : '#9ca3af'),
@@ -60,11 +113,12 @@ export function createStatusElement() {
             div({
                 className: 'recycle-mode-container',
                 children: [
-                    recycleIconElement
+                    circulation.element
                 ],
             }),
             // v2.0: "Modo padrão" ao lado da circulação. O check dentro do círculo
             // comunica a ação: focar + pressionar cima/baixo aplica o perfil salvo.
+            // Os chevrons aparecem no foco para dizer QUE teclas fazem isso.
             div({
                 className: 'default-mode-container',
                 children: [
@@ -72,7 +126,8 @@ export function createStatusElement() {
                         src: defaultModeIcon,
                         className: 'w-54 h-54',
                         alt: 'Modo padrão',
-                    })
+                    }),
+                    defaultRocker
                 ],
             }),
             div({
@@ -100,8 +155,7 @@ export function createStatusElement() {
 
     var unsubscribeRecycle = subscribe('recycle', function(newRecycle) {
         // H6: cycle_mode 1 = ar externo (fresh air), 0 = interna
-        const isRecycleIn = newRecycle !== 1;
-        recycleIconElement.src = isRecycleIn ? internalIcon : externalIcon;
+        circulation.apply(newRecycle !== 1, true);
     });
 
     // Circulation is a focusable control (OK cycles fan -> temp -> circulation):
@@ -161,6 +215,8 @@ export function createStatusElement() {
         unsubscribeDefaultModeFocus();
         unsubscribeMaxAuto();
         unsubscribeDry();
+        circulation.cleanup();
+        defaultRocker.cleanup();
     };
 
     return statusElement;

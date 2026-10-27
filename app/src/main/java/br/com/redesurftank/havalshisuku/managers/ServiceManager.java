@@ -123,6 +123,11 @@ public class ServiceManager {
             // consumo nao tem, e fica "—" na tabela se o modulo nao publicar esta chave.
             CarConstants.CAR_BASIC_CUR_JOURNEY_ODOMETER,
             CarConstants.CAR_BASIC_CUR_JOURNEY_AVG_FUEL_CONSUME,
+            // Consumo por tanque: o nivel vem em % e a autonomia ao lado. As duas
+            // precisam estar assinadas para o TankLog abrir/fechar um tanque e para
+            // a aba "Tanques" mostrar a autonomia informada no abastecimento.
+            CarConstants.CAR_BASIC_REMAIN_FUEL_PERCENTAGE,
+            CarConstants.CAR_BASIC_REMAIN_ODOMETER,
     };
 
     private static final CarConstants[] KEYS_TO_SAVE = {
@@ -276,6 +281,15 @@ public class ServiceManager {
     // limita o log da sonda a UMA linha por chave por viagem (a transicao false->true).
     private volatile boolean liveTripDistanceSeen = false;
     private volatile boolean liveTripConsumptionSeen = false;
+    // Sonda do consumo por tanque: uma linha no log na primeira amostra valida, para
+    // descobrir a escala real de remain_fuel_percentage neste H6 sem uma release so
+    // para isso. O TankLog ignora valores fora de 0-100.
+    private volatile boolean tankProbeLogged = false;
+    // As chaves de fuel_consume_info ja estavam assinadas, mas o formato nunca foi
+    // visto. Uma linha crua de cada revela se alguma delas traz litros — o que
+    // permitiria trocar a estimativa por volume real numa proxima versao.
+    private volatile boolean fuelInfoProbeLogged = false;
+    private volatile boolean cycleFuelInfoProbeLogged = false;
     // Janela em que um POWER=1 vindo da secagem NAO deve ligar a ventilacao do banco.
     private volatile long suppressSeatVentBoostUntilElapsed = 0L;
     // Diagnostico H3: so para logar a transicao do engine_state uma vez.
@@ -1150,6 +1164,45 @@ public class ServiceManager {
                     if (parsed != null && parsed > 0) {
                         recordJourneyConsumption(parsed);
                     }
+                }
+            } else if (key.equals(CarConstants.CAR_BASIC_REMAIN_FUEL_PERCENTAGE.getValue())) {
+                // Consumo por tanque. Nao ha guarda de ignicao aqui de proposito: o
+                // nivel e um NIVEL, nao um evento, e o abastecimento pode ser feito
+                // com o carro desligado. O TankLog usa a ultima amostra persistida
+                // para detectar o salto, entao a primeira leitura depois de religar
+                // ja fecha o tanque anterior com o nivel que ele tinha antes.
+                Double parsed = parseDoubleOrNull(value);
+                if (parsed != null) {
+                    if (!tankProbeLogged) {
+                        // Loga o PRIMEIRO valor cru, mesmo fora de 0-100: e assim que se
+                        // descobre se este H6 publica a escala em % ou em outra unidade.
+                        tankProbeLogged = true;
+                        Log.w(TAG, "[TANQUE] sonda: remain_fuel_percentage=" + parsed
+                                + " remain_odometer=" + getRemainingRangeKm()
+                                + " (escala esperada 0-100; capacidade usada="
+                                + TankLog.TANK_CAPACITY_LITERS + " L)");
+                    }
+                    TankLog.onFuelSample(App.getContext(), parsed, getTotalOdometer(),
+                            getRemainingRangeKm(), System.currentTimeMillis());
+                }
+            } else if (key.equals(CarConstants.CAR_BASIC_REMAIN_ODOMETER.getValue())) {
+                // A autonomia costuma chegar junto com o nivel, mas a ordem entre as
+                // chaves e do modulo. Se ela chegar DEPOIS do nivel que abriu um
+                // tanque, o TankLog ainda a aproveita dentro de uma janela curta.
+                Double parsed = parseDoubleOrNull(value);
+                if (parsed != null && parsed > 0) {
+                    TankLog.onRangeSample(App.getContext(), (int) Math.round(parsed),
+                            System.currentTimeMillis());
+                }
+            } else if (key.equals(CarConstants.CAR_EV_INFO_FUEL_CONSUME_INFO.getValue())) {
+                if (!fuelInfoProbeLogged) {
+                    fuelInfoProbeLogged = true;
+                    Log.w(TAG, "[TANQUE] sonda " + key + "=" + value);
+                }
+            } else if (key.equals(CarConstants.CAR_EV_INFO_CYCLE_FUEL_CONSUME_INFO.getValue())) {
+                if (!cycleFuelInfoProbeLogged) {
+                    cycleFuelInfoProbeLogged = true;
+                    Log.w(TAG, "[TANQUE] sonda " + key + "=" + value);
                 }
             } else if (key.equals(CarConstants.CAR_BASIC_ENGINE_STATE.getValue())) {
                 // v2.7 (diagnostico H3): qual dos dois chega primeiro no desligamento, o
@@ -2832,6 +2885,29 @@ public class ServiceManager {
             Log.e(TAG, "Error parsing total odometer value: " + totalOdometer, e);
             return 0;
         }
+    }
+
+    /**
+     * Nivel de combustivel em porcentagem, ou -1 se o modulo ainda nao publicou.
+     * A aba "Tanques" usa o valor para calcular o volume e o consumo do tanque aberto.
+     */
+    public double getRemainingFuelPercent() {
+        String value = getData(CarConstants.CAR_BASIC_REMAIN_FUEL_PERCENTAGE.getValue());
+        Double parsed = parseDoubleOrNull(value);
+        return parsed == null ? -1.0 : parsed;
+    }
+
+    /**
+     * Autonomia restante informada pelo carro em km, ou -1 se indisponivel. E a
+     * "autonomia daquele tanque" mostrada quando o abastecimento e detectado.
+     */
+    public int getRemainingRangeKm() {
+        String value = getData(CarConstants.CAR_BASIC_REMAIN_ODOMETER.getValue());
+        Double parsed = parseDoubleOrNull(value);
+        if (parsed == null || parsed < 0 || parsed > Integer.MAX_VALUE) {
+            return -1;
+        }
+        return (int) Math.round(parsed);
     }
 
     // --- v2.10: instantaneo da viagem em andamento, para a aba "Consumo" ----------------

@@ -2,6 +2,7 @@ import { stateManager, subscribe } from '../../state.js';
 import { createFocusElementWithChildren } from './focusElement.js';
 import { div } from '../../utils/createElement.js';
 import { updateProgressRings } from './mainAcControl.js'
+import { bumpValue, createRockerHint } from './rocker.js';
 
 export function createTemperatureElement() {
 
@@ -11,6 +12,11 @@ export function createTemperatureElement() {
             stateManager.get('temp') + '°C',
         ],
     });
+
+    // Mesma pista do fan: a temperatura sobe/desce com a tecla do volante, entao
+    // os chevrons mostram a direcao e o valor entra deslizando do lado certo.
+    var rocker = createRockerHint();
+
     var focusArea = createFocusElementWithChildren({
         className: 'ac-temp-control-area',
         focused: stateManager.get('focusArea') === 'temp',
@@ -24,6 +30,7 @@ export function createTemperatureElement() {
                     ],
                 }), tempDisplay],
             }),
+            rocker,
         ]
     });
 
@@ -42,7 +49,10 @@ export function createTemperatureElement() {
         }
     });
 
+    var previousTemp = stateManager.get('temp');
     var unsubscribeTemp = subscribe('temp', function(newTemp) {
+        var direction = Number(newTemp) >= Number(previousTemp) ? 'up' : 'down';
+        previousTemp = newTemp;
         if (newTemp == 16) {
             tempDisplay.textContent = 'Low';
         } else if (newTemp == 32) {
@@ -51,12 +61,15 @@ export function createTemperatureElement() {
             tempDisplay.textContent = newTemp + '°C';
         }
         updateProgressRings();
+        rocker.flash(direction);
+        bumpValue(tempDisplay, direction);
     });
 
     // Add cleanup method to the element
     focusArea.cleanup = function() {
         unsubscribeFocus();
         unsubscribeTemp();
+        rocker.cleanup();
     };
 
     return focusArea;

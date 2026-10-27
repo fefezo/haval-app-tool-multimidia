@@ -35,6 +35,16 @@
 |---------|------|-----------|
 | Habilitar menu customizado no cluster | Toggle | Exibe um menu customizado no cluster controlado pelas teclas de navegação do volante (UP/DOWN/ENTER/BACK) |
 
+No widget de A/C do cluster, os controles que mudam com as teclas UP/DOWN do volante
+mostram a direção da mudança:
+
+- **Fan e temperatura:** dois chevrons (cima/baixo) ao lado do valor. O chevron da
+  direção usada acende e o número entra deslizando daquele lado. A direção é inferida
+  comparando o valor anterior com o novo, porque o carro envia apenas o valor final.
+- **Circulação (interna/externa):** uma chave física de duas posições, com o knob
+  deslizando para a posição ativa (externa em cima, interna embaixo).
+- **Modo padrão:** os chevrons ao lado do check indicam que UP/DOWN aplica o perfil salvo.
+
 ### Conectividade
 
 | Feature | Tipo | Descrição |
@@ -79,6 +89,33 @@
 |---------|------|-----------|
 | Bypass de Verificação | Toggle | Ignora a verificação de integridade da instalação (UID check). Só visível quando a verificação falhou |
 
+## Tab: Consumo
+
+Duas visões, selecionadas por abas internas:
+
+### Viagens
+
+| Feature | Tipo | Descrição |
+|---------|------|-----------|
+| Registro por ciclo | Automático | Cria uma viagem por ciclo liga→desliga, com distância, consumo em km/L e odômetro. Persistido em JSON |
+| Gráfico de dois eixos | Visualização | Mostra km/L e distância (km) por viagem, com legenda e escalas separadas |
+| Tabela de viagens | Lista | Data, distância e consumo por viagem, do mais recente para o mais antigo |
+
+### Tanques
+
+| Feature | Tipo | Descrição |
+|---------|------|-----------|
+| Detecção de abastecimento | Automático | Acompanha `remain_fuel_percentage`; um salto de 5 pontos percentuais (com cooldown de 10 min) fecha o tanque atual e abre um novo. A autonomia e o nível do momento do abastecimento viram a referência do tanque |
+| Tanque atual | Card ao vivo | Distância rodada, consumo estimado, nível atual, autonomia no início/agora e litros estimados do abastecimento |
+| Comparativo por posto | Relatório | Agrupa os tanques fechados pelo nome do posto e mostra o consumo médio ponderado (km total ÷ litros estimados), do melhor para o pior |
+| Histórico de tanques | Lista | Data, posto, distância e km/L de cada tanque; toque para nomear/editar o posto do abastecimento |
+| Limpar histórico | Botão + confirmação | Apaga tanques e nomes de postos; o acompanhamento recomeça na próxima leitura de nível |
+
+> O carro não publica litros abastecidos. O volume é estimado pela variação do nível
+> de combustível × 60 L de capacidade do tanque. É uma estimativa, mas usa a mesma
+> régua para todos os tanques — o que permite comparar um posto com outro. Nomear o
+> posto é manual: use o mesmo nome para o mesmo lugar.
+
 ## Tab: Telas
 
 | Feature | Tipo | Descrição |
@@ -106,6 +143,7 @@ Loja de apps integrada com grid de 4 colunas.
 
 - **Instalar via URL**: Campo de texto + botão para baixar e instalar APK de qualquer URL, com barra de progresso
 - **Grid de apps**: Busca lista de apps disponíveis do GitHub. Cada card mostra nome, versão disponível, versão instalada e botões de Instalar/Atualizar/Desinstalar
+- **Sennuopu DP-X10 embutido**: o APK do app de equalização do processador de som viaja dentro do Impulse (`res/raw/sennuopu_dp_x10.apk`) e aparece no grid mesmo sem internet. O botão Instalar copia o APK local e abre o instalador do Android; não há download
 - Apps são ordenados: precisa atualizar primeiro, depois disponíveis, depois já atualizados
 
 ## Tab: Informações

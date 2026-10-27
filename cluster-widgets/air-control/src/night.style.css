@@ -410,6 +410,184 @@ button {
   -webkit-align-items: center;
   -ms-flex-align: center;
   z-index: 3;
+  border-radius: 24px;
+}
+
+/* Pistas de "cima/baixo". O volante nao manda a tecla, so o valor; o
+   componente acende o chevron da direcao em que o valor mudou. Ficam ocultas
+   fora do foco para nao competir com os numeros grandes. */
+.rocker-hint {
+  position: absolute;
+  right: -24px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.focus-active .rocker-hint {
+  opacity: 1;
+}
+
+.rocker-chevron {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border: solid transparent;
+  border-width: 3px 3px 0 0;
+  border-color: #4d6f9f;
+  transition: border-color 0.12s ease, transform 0.12s ease, filter 0.12s ease;
+}
+
+.rocker-chevron + .rocker-chevron {
+  margin-top: 15px;
+}
+
+.rocker-chevron-up {
+  transform: rotate(-45deg);
+}
+
+.rocker-chevron-down {
+  transform: rotate(135deg);
+}
+
+.rocker-chevron-up.pressed {
+  transform: rotate(-45deg) scale(1.35);
+  border-color: #ffffff;
+  filter: drop-shadow(0 0 4px #4d9eff);
+}
+
+.rocker-chevron-down.pressed {
+  transform: rotate(135deg) scale(1.35);
+  border-color: #ffffff;
+  filter: drop-shadow(0 0 4px #4d9eff);
+}
+
+/* O "modo padrao" nao tem valor: qualquer lado aplica o perfil. Os chevrons
+   ficam a esquerda do check para nao invadir o arco de temperatura. */
+.default-mode-container .rocker-hint {
+  left: -24px;
+  right: auto;
+}
+
+.default-mode-container {
+  border-radius: 18px;
+}
+
+/* Circulacao como chave fisica de duas posicoes: externo em cima, interno
+   embaixo. O knob desliza entre as duas quando o valor muda. */
+.circ-rocker {
+  position: relative;
+  width: 46px;
+  height: 68px;
+  border-radius: 23px;
+  background: linear-gradient(180deg, #060b14 0%, #0d1727 100%);
+  border: 1.5px solid rgba(93, 123, 171, 0.55);
+  box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.recycle-mode-container.focus-active .circ-rocker {
+  border-color: rgba(77, 158, 255, 0.9);
+  box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.7), 0 0 12px rgba(77, 158, 255, 0.45);
+}
+
+.circ-rocker-knob {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 37px;
+  height: 29px;
+  border-radius: 15px;
+  background: linear-gradient(180deg, #3f76bd 0%, #1c355b 100%);
+  border: 1px solid rgba(130, 190, 255, 0.9);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.55), 0 0 9px rgba(77, 158, 255, 0.4);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1;
+}
+
+.circ-rocker.internal .circ-rocker-knob {
+  transform: translateY(33px);
+}
+
+.circ-rocker-option {
+  position: absolute;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  opacity: 0.35;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.circ-rocker-option.active {
+  opacity: 1;
+}
+
+.circ-rocker-option.active img {
+  filter: drop-shadow(0 0 4px rgba(150, 200, 255, 0.85));
+}
+
+.circ-rocker-external {
+  top: 6px;
+}
+
+.circ-rocker-internal {
+  bottom: 6px;
+}
+
+@keyframes circ-rocker-pulse {
+  0% {
+    box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.7), 0 0 0 0 rgba(77, 158, 255, 0.55);
+  }
+  100% {
+    box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.7), 0 0 0 10px rgba(77, 158, 255, 0);
+  }
+}
+
+.circ-rocker.pulse {
+  animation: circ-rocker-pulse 0.45s ease-out;
+}
+
+@keyframes value-bump-up {
+  from {
+    transform: translateY(7px);
+    opacity: 0.35;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes value-bump-down {
+  from {
+    transform: translateY(-7px);
+    opacity: 0.35;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.value-bump-up {
+  animation: value-bump-up 0.22s ease-out;
+}
+
+.value-bump-down {
+  animation: value-bump-down 0.22s ease-out;
 }
 
 /* v2.0: zona "Modo padrão" — mesma coluna do ícone de circulação (100px), logo
@@ -639,11 +817,13 @@ button {
 
 
 .fan-display-label {
+  display: inline-block;
   font-size: 72px;
   line-height: 0.9;
 }
 
 .temp-display-label {
+  display: inline-block;
   font-size: 52px;
   line-height: 0.9;
 }
