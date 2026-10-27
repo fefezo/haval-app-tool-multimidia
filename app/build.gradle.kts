@@ -50,8 +50,8 @@ android {
         // NÃO mudar o versionCode: é 99 em todas as releases desde a v2.0, e é
         // isso que faz o rollback ser uma reinstalação de mesmo versionCode,
         // que o Android aceita sem `-d`.
-        // v2.10: log de consumo (aba "Consumo").
-        versionName = "2.10"
+        // v2.11: consumo por tanque, direção no cluster e Sennuopu embutido.
+        versionName = "2.11"
 
         buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")
         buildConfigField("String", "BUILD_COMMIT", "\"$buildCommit\"")
