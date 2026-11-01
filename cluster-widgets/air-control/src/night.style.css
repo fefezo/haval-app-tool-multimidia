@@ -1513,3 +1513,332 @@ canvas.graph-chart {
 .screen-flash-animation {
   animation: screen-flash 0.5s ease-in-out;
 }
+/* ============================================= */
+/*        AC SCREEN — VARIANTE B (TRILHO)        */
+/* ============================================= */
+/* Quatro cartoes lado a lado. O foco cresce e ganha contorno branco; o que
+   esta ligado fica azul. As leituras do carro ficam na base, fora do ciclo. */
+
+.main-container.b-screen {
+  position: relative;
+  width: 452px;
+  height: 452px;
+  background: transparent;
+  color: #eef5ff;
+  --b-ink: #eef5ff;
+  --b-ink-2: #c7d6ed;
+  --b-muted: #8095b2;
+  --b-off: #465a76;
+  --b-on: #4d9eff;
+  --b-line: #233348;
+  --b-focus: #ffffff;
+  --b-green: #58c58e;
+  --b-amber: #eaa33e;
+}
+
+.b-screen .b-ic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  color: inherit;
+}
+
+.b-screen .b-ic svg {
+  display: block;
+  width: 1em;
+  height: 1em;
+}
+
+.b-screen .on { color: var(--b-on); }
+.b-screen .off { color: var(--b-off); }
+.b-screen .neutral { color: var(--b-ink-2); }
+.b-screen .aion { color: #3f9a93; }
+
+/* --- status: energia e AUTO ------------------------------------------- */
+.b-status {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 6;
+}
+
+.b-screen .b-st {
+  width: 18px;
+  height: 18px;
+  color: var(--b-off);
+  opacity: 0.85;
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.b-screen .b-st svg {
+  width: 18px;
+  height: 18px;
+}
+
+.b-screen .b-st.on {
+  color: var(--b-on);
+  opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(77, 158, 255, 0.35));
+}
+
+/* --- trilho de cartoes ------------------------------------------------ */
+.b-rail {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 4;
+}
+
+.b-card {
+  position: relative;
+  width: 78px;
+  height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 6px 40px;
+  border: 1px solid var(--b-line);
+  border-radius: 26px;
+  background: linear-gradient(180deg, rgba(13, 25, 42, 0.88), rgba(6, 11, 19, 0.92));
+  transition:
+    width 0.22s ease,
+    height 0.22s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.b-card.is-on {
+  border-color: rgba(77, 158, 255, 0.3);
+  background: linear-gradient(180deg, rgba(19, 37, 62, 0.92), rgba(7, 13, 22, 0.95));
+}
+
+.b-card.is-focused {
+  width: 104px;
+  height: 166px;
+  border-color: transparent;
+  background: linear-gradient(180deg, rgba(25, 47, 76, 0.95), rgba(9, 16, 27, 0.96));
+  box-shadow:
+    0 0 0 2px var(--b-focus),
+    0 0 28px rgba(255, 255, 255, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.b-card .b-ic {
+  font-size: 34px;
+}
+
+.b-val {
+  font-size: 38px;
+  line-height: 0.9;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.b-card.is-focused .b-val {
+  font-size: 46px;
+}
+
+.b-val.b-temp {
+  font-size: 24px;
+}
+
+.b-card.is-focused .b-val.b-temp {
+  font-size: 30px;
+}
+
+.b-pair {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.b-card .b-pair-ico {
+  font-size: 24px;
+}
+
+.b-card.is-focused .b-pair-ico {
+  font-size: 28px;
+}
+
+/* --- chevrons de cima/baixo (so no foco) ------------------------------ */
+.b-chev {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.b-card.is-focused .b-chev {
+  opacity: 1;
+}
+
+.b-chev-ico {
+  display: inline-flex;
+  font-size: 14px;
+  color: var(--b-focus);
+  opacity: 0.66;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+.b-chev-ico svg {
+  display: block;
+  width: 1em;
+  height: 1em;
+}
+
+.b-chev-down svg {
+  transform: rotate(180deg);
+}
+
+.b-chev-ico.pressed {
+  opacity: 1;
+  color: #ffffff;
+  filter: drop-shadow(0 0 6px rgba(77, 158, 255, 0.9));
+}
+
+.b-chev-up.pressed {
+  animation: b-press-up 0.2s ease-out;
+}
+
+.b-chev-down.pressed {
+  animation: b-press-down 0.2s ease-out;
+}
+
+@keyframes b-press-up {
+  0% { transform: translateY(0); }
+  45% { transform: translateY(-3px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes b-press-down {
+  0% { transform: translateY(0); }
+  45% { transform: translateY(3px); }
+  100% { transform: translateY(0); }
+}
+
+.b-pair.flip {
+  animation: b-flip 0.24s ease-out;
+}
+
+@keyframes b-flip {
+  0% { transform: scale(0.86); opacity: 0.35; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* --- leituras passivas: externa (sol) e interna (carro) --------------- */
+.b-sensors {
+  position: absolute;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 24px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.b-sensor {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.b-sensor .b-sensor-ico {
+  font-size: 20px;
+  color: var(--b-muted);
+}
+
+.b-sensor-val {
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 500;
+  color: var(--b-ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- badges informativos: MAX AUTO e secagem -------------------------- */
+.b-badge {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #12151c;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  z-index: 6;
+}
+
+.b-badge .b-badge-ico {
+  font-size: 15px;
+}
+
+.b-maxauto {
+  top: 42px;
+  color: var(--b-green);
+  border: 1px solid rgba(88, 197, 142, 0.35);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+.b-dry {
+  bottom: 92px;
+  color: var(--b-amber);
+  border: 1px solid rgba(234, 163, 62, 0.35);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+.b-dry-countdown {
+  color: #f2c98f;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- flash verde ao aplicar o modo padrao ----------------------------- */
+.b-flash-green {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 452px;
+  height: 452px;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(circle, rgba(88, 197, 142, 0.26), transparent 62%);
+  z-index: 20;
+}
+
+.b-flash-green.is-active {
+  animation: b-flash-green 0.55s ease-out;
+}
+
+@keyframes b-flash-green {
+  0% { opacity: 0; }
+  22% { opacity: 1; }
+  100% { opacity: 0; }
+}

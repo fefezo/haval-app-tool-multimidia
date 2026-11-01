@@ -219,18 +219,34 @@ src/
 └── components/
     ├── mainMenu.js       # Menu principal com opções do veículo
     ├── aircon/
-    │   ├── mainAcControl.js  # Tela do A/C
-    │   ├── acTemperature.js  # Display de temperatura
-    │   ├── fan.js            # Indicador de ventilador
-    │   ├── focusElement.js   # Elemento com foco visual
-    │   ├── infoTemperature.js # Info de temperatura
-    │   └── status.js         # Status do A/C
+    │   ├── mainAcControl.js  # Tela do A/C no layout de trilho (quatro cartões)
+    │   └── rocker.js         # Animação de subida/descida do valor
     ├── regen/
     │   └── regenControl.js   # Tela de regeneração
     └── graphs/
         ├── graphs.js         # Tela de gráficos
         └── warpTunnel.js     # Efeito visual de túnel
 ```
+
+### Tela do A/C — layout de trilho
+
+A tela de A/C (`mainAcControl.js`) usa quatro cartões lado a lado, na ordem em
+que o OK avança: ventilador, temperatura, circulação e modo padrão. O cartão em
+foco cresce e recebe contorno branco; o que está ligado fica azul. Os chevrons
+de cima/baixo só aparecem no cartão em foco e piscam no sentido da mudança.
+
+- **Ventilador**: valor 0–7; fica azul quando o A/C está ligado e o fluxo é maior
+  que zero. Com íons ativos (`aion = 1`), o tom vira verde-azulado.
+- **Temperatura**: mostra o ajuste (`LO` em 16, `HI` em 32, senão uma casa
+  decimal). Não é a temperatura medida da cabine.
+- **Circulação**: os dois ícones ficam no mesmo cartão; o ativo fica azul. No H6,
+  `recycle = 1` é ar externo e `recycle = 0` é recirculação interna.
+- **Modo padrão**: ícone de check; qualquer lado aplica o perfil salvo e um flash
+  verde confirma a aplicação.
+
+Na base ficam as leituras passivas do carro, fora do ciclo do OK: sol + temperatura
+externa (`outside_temp`) e carro + temperatura interna (`inside_temp`). Os badges
+de `MAX AUTO` e secagem continuam aparecendo quando esses modos estão ativos.
 
 ### StateManager (state.js)
 

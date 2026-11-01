@@ -1,6 +1,6 @@
 import {getState as get, setState, subscribe} from './state.js';
 import {createMainMenu} from './components/mainMenu.js';
-import {createAcControlScreen, updateProgressRings as updateProgressRingsAC} from "./components/aircon/mainAcControl.js";
+import {createAcControlScreen} from "./components/aircon/mainAcControl.js";
 import {createRegenScreen, updateProgressRings as updateProgressRingsRegen } from "./components/regen/regenControl.js";
 import {createGraphScreen } from "./components/graphs/graphs.js";
 import { div } from './utils/createElement.js';
