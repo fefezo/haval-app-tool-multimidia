@@ -50,8 +50,9 @@ android {
         // NÃO mudar o versionCode: é 99 em todas as releases desde a v2.0, e é
         // isso que faz o rollback ser uma reinstalação de mesmo versionCode,
         // que o Android aceita sem `-d`.
-        // v2.11: consumo por tanque, direção no cluster e Sennuopu embutido.
-        versionName = "2.11"
+        // v2.12: menu A/C do cluster no layout de trilho, com foco/estado claros
+        // e temperaturas interna e externa na base.
+        versionName = "2.12"
 
         buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")
         buildConfigField("String", "BUILD_COMMIT", "\"$buildCommit\"")
