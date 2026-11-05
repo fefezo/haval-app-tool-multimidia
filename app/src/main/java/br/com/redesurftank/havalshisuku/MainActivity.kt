@@ -452,6 +452,9 @@ fun BasicSettingsTab(section: String) {
     var setStartupAc by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.SET_STARTUP_AC.key, false)) }
     // Temperatura armazenada em unidades de 0,5 °C (16.0 °C = 32 ... 32.0 °C = 64) para o slider inteiro
     var startupAcTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.key, "22.0")?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
+    // Sem a chave do passageiro (perfil antigo, de temperatura única), nasce espelhando a
+    // do motorista — a migração preserva o comportamento salvo até o usuário mexer.
+    var startupAcPassTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE_PASSENGER.key, prefs.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.key, "22.0"))?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
     var startupAcBlower by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STARTUP_AC_BLOWER_MODE.key, "") ?: "") }
     // H6: cycle_mode 1 = ar externo, 0 = interna (invertido vs padrão AOSP)
     var startupAcCycle by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.key, "1") ?: "1") }
@@ -1208,8 +1211,16 @@ fun BasicSettingsTab(section: String) {
                     startupAcTemp = newTemp
                     prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.key, "%.1f".format(newTemp / 2.0)) }
                 },
-                sliderLabel = "Temperatura: %.1f°C".format(startupAcTemp / 2.0),
+                sliderLabel = "Temperatura — motorista: %.1f°C".format(startupAcTemp / 2.0),
                 customContent = {
+                    AcTempSlider(
+                        label = "Temperatura — passageiro: %.1f°C".format(startupAcPassTemp / 2.0),
+                        sliderValue = startupAcPassTemp,
+                        onValueChange = { newTemp ->
+                            startupAcPassTemp = newTemp
+                            prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE_PASSENGER.key, "%.1f".format(newTemp / 2.0)) }
+                        }
+                    )
                     Text(
                         // H6: cycle_mode 1 = ar externo (fresh air), 0 = interna (invertido vs AOSP)
                         "Circulação: ${if (startupAcCycle == "1") "Externa (ar de fora)" else "Interna"}",

@@ -1434,7 +1434,10 @@ public class ServiceManager {
         // ajustar os valores sem forcar o ar ligado.
         boolean startupAcPower = sharedPreferences.getBoolean(SharedPreferencesKeys.STARTUP_AC_POWER.getKey(), false);
         boolean startupAcCompressor = sharedPreferences.getBoolean(SharedPreferencesKeys.STARTUP_AC_COMPRESSOR.getKey(), true);
-        String startupAcTemp = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.getKey(), "22.0");
+        String startupAcDriverTemp = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.getKey(), "22.0");
+        // Perfil antigo tinha uma temperatura so: sem a chave do passageiro, espelha a do
+        // motorista para nao mudar o comportamento de quem nunca abriu a tela nova.
+        String startupAcPassTemp = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE_PASSENGER.getKey(), startupAcDriverTemp);
         String startupAcBlower = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_BLOWER_MODE.getKey(), null);
         String startupAcCycle = sharedPreferences.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.getKey(), "1"); // 1 = externa no H6
         int startupAcFan = sharedPreferences.getInt(SharedPreferencesKeys.STARTUP_AC_FAN_SPEED.getKey(), 0);
@@ -1444,9 +1447,17 @@ public class ServiceManager {
             // desligado nao significa nada na tela do carro.
             updateData(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), startupAcCompressor ? "1" : "0");
         }
-        updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), startupAcTemp);
-        updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), startupAcTemp);
-        updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "1");
+        // Com o SYNC ligado o modulo espelha o lado do passageiro no do motorista — se as
+        // temperaturas sao diferentes, desliga ANTES de escrever, senao os dois lados
+        // acabam com o mesmo valor.
+        boolean startupAcSync = startupAcDriverTemp.equals(startupAcPassTemp);
+        if (!startupAcSync) {
+            updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "0");
+        }
+        updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), startupAcDriverTemp);
+        updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), startupAcPassTemp);
+        // Reafirma o estado final do sync depois das temperaturas.
+        updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), startupAcSync ? "1" : "0");
         if (startupAcBlower != null && !startupAcBlower.isEmpty()) {
             updateData(CarConstants.CAR_HVAC_BLOWER_MODE.getValue(), startupAcBlower);
         }
@@ -1456,7 +1467,7 @@ public class ServiceManager {
         }
         updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), startupAcCycle);
         updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0"); // AQS could force internal circulation back
-        Log.w(TAG, "Startup AC set: temp=" + startupAcTemp + " blower=" + startupAcBlower + " fan=" + startupAcFan
+        Log.w(TAG, "Startup AC set: temp=" + startupAcDriverTemp + "/" + startupAcPassTemp + " blower=" + startupAcBlower + " fan=" + startupAcFan
                 + " cycle=" + startupAcCycle + " power=" + startupAcPower + " compressor=" + startupAcCompressor);
     }
 
@@ -1485,11 +1496,17 @@ public class ServiceManager {
             // depois do power para o módulo já estar acordado quando ele chega.
             updateData(CarConstants.CAR_HVAC_AC_ENABLE.getValue(), compressor ? "1" : "0");
             updateData(CarConstants.CAR_HVAC_AUTO_ENABLE.getValue(), "0"); // velocidade explícita, sem AUTO interferir
+            // Sync só quando os dois lados pedem a mesma temperatura. Com o sync ativo o
+            // módulo espelha o lado do passageiro no do motorista, então ele PRECISA ser
+            // desligado antes das temperaturas — mandar por último igualava os dois lados.
+            boolean sameTemp = driverTemp.equals(passTemp);
+            if (!sameTemp) {
+                updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), "0");
+            }
             updateData(CarConstants.CAR_HVAC_DRIVER_TEMPERATURE.getValue(), driverTemp);
             updateData(CarConstants.CAR_HVAC_PASS_TEMPERATURE.getValue(), passTemp);
-            // Sync só quando os dois lados pedem a mesma temperatura; senão o painel do
-            // carro igualaria o lado do passageiro ao do motorista ao apertar SYNC.
-            updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), driverTemp.equals(passTemp) ? "1" : "0");
+            // Reafirma o estado final do sync depois das temperaturas.
+            updateData(CarConstants.CAR_HVAC_SYNC_ENABLE.getValue(), sameTemp ? "1" : "0");
             if (fan > 0 && fan <= 7) {
                 updateData(CarConstants.CAR_HVAC_FAN_SPEED.getValue(), String.valueOf(fan));
             }
@@ -2428,7 +2445,8 @@ public class ServiceManager {
 
     /**
      * Desfaz o perfil: escreve o snapshot inteiro (menos o power) e o power por ULTIMO.
-     * Devolve se o comando de power foi de fato entregue ao binder.
+     * Devolve se o comando de power foi de fato entregue ao binder. No desligamento o
+     * snapshot nao devolve circulacao/AQS: o ciclo termina de proposito com ar externo.
      *
      * O power vai por ultimo de proposito: o snapshot e um HashMap, entao iterar direto
      * manda os comandos em ordem arbitraria — e se o POWER=0 saisse antes do FAN=anterior,
@@ -2439,16 +2457,28 @@ public class ServiceManager {
      * `true` devolve o valor que estava antes da secagem (cancelamento manual).
      */
     private boolean writeSnapshotAndPower(Map<String, String> snapshot, DryingKind kind, boolean restorePreviousPower) {
+        final boolean shuttingDown = kind == DryingKind.SHUTDOWN;
         for (Map.Entry<String, String> entry : snapshot.entrySet()) {
             if (entry.getValue() == null) continue;
             if (entry.getKey().equals(CarConstants.CAR_HVAC_POWER_MODE.getValue())) continue;
+            // Desligamento NAO devolve a circulacao nem o AQS ao estado anterior: o snapshot
+            // costuma ter circulacao interna, e restaura-la fechava o duto logo depois da
+            // secagem — o ar externo que secou o evaporador era cortado e o carro ficava
+            // com o duto fechado e umido ate a proxima partida (cheiro de mofo).
+            if (shuttingDown && (entry.getKey().equals(CarConstants.CAR_HVAC_CYCLE_MODE.getValue())
+                    || entry.getKey().equals(CarConstants.CAR_HVAC_AQS_ENABLE.getValue()))) {
+                continue;
+            }
             updateData(entry.getKey(), entry.getValue());
         }
         final String previousPower = snapshot.get(CarConstants.CAR_HVAC_POWER_MODE.getValue());
-        if (kind == DryingKind.SHUTDOWN) {
+        if (shuttingDown) {
             // NUNCA restaura o power anterior: o estado anterior e da ignicao que acabou, e
-            // ligar a ventilacao com o carro desligado a deixaria ligada para sempre. Os
-            // valores (temp/fan/circulacao) voltam ao que eram.
+            // ligar a ventilacao com o carro desligado a deixaria ligada para sempre.
+            // Termina com o ar externo aberto (AQS=0 evita o automatico fechar de novo) e
+            // o power por ultimo, para o duto ficar ventilado enquanto o carro esta parado.
+            updateData(CarConstants.CAR_HVAC_AQS_ENABLE.getValue(), "0");
+            updateData(CarConstants.CAR_HVAC_CYCLE_MODE.getValue(), "1"); // H6: 1 = externa / fresh air
             return updateDataChecked(CarConstants.CAR_HVAC_POWER_MODE.getValue(), "0");
         }
         // Sem teste de null no caminho: se a leitura do snapshot falhou no start (binder
