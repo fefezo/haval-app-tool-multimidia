@@ -451,10 +451,10 @@ fun BasicSettingsTab(section: String) {
     var volume by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.STARTUP_VOLUME.key, 1)) }
     var setStartupAc by remember { mutableStateOf(prefs.getBoolean(SharedPreferencesKeys.SET_STARTUP_AC.key, false)) }
     // Temperatura armazenada em unidades de 0,5 °C (16.0 °C = 32 ... 32.0 °C = 64) para o slider inteiro
-    var startupAcTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.key, "22.0")?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
+    var startupAcTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.key, "22.0")?.replace(',', '.')?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
     // Sem a chave do passageiro (perfil antigo, de temperatura única), nasce espelhando a
     // do motorista — a migração preserva o comportamento salvo até o usuário mexer.
-    var startupAcPassTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE_PASSENGER.key, prefs.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.key, "22.0"))?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
+    var startupAcPassTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE_PASSENGER.key, prefs.getString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.key, "22.0"))?.replace(',', '.')?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
     var startupAcBlower by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STARTUP_AC_BLOWER_MODE.key, "") ?: "") }
     // H6: cycle_mode 1 = ar externo, 0 = interna (invertido vs padrão AOSP)
     var startupAcCycle by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.STARTUP_AC_CYCLE_MODE.key, "1") ?: "1") }
@@ -466,8 +466,8 @@ fun BasicSettingsTab(section: String) {
     // Perfil "Modo padrão do A/C" (v2.0): temperaturas independentes por lado,
     // ventilação, circulação e direção do ar. Mesmo armazenamento do AC de partida
     // (0,5 °C por ponto de slider, string "22.0").
-    var defaultAcDriverTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_DRIVER.key, "22.0")?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
-    var defaultAcPassTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_PASSENGER.key, "22.0")?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
+    var defaultAcDriverTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_DRIVER.key, "22.0")?.replace(',', '.')?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
+    var defaultAcPassTemp by remember { mutableIntStateOf((prefs.getString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_PASSENGER.key, "22.0")?.replace(',', '.')?.toFloatOrNull()?.times(2)?.toInt() ?: 44).coerceIn(32, 64)) }
     var defaultAcFan by remember { mutableIntStateOf(prefs.getInt(SharedPreferencesKeys.DEFAULT_AC_FAN_SPEED.key, 3).coerceIn(1, 7)) }
     var defaultAcCycle by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.DEFAULT_AC_CYCLE_MODE.key, "1") ?: "1") }
     var defaultAcBlower by remember { mutableStateOf(prefs.getString(SharedPreferencesKeys.DEFAULT_AC_BLOWER_MODE.key, "") ?: "") }
@@ -1209,7 +1209,7 @@ fun BasicSettingsTab(section: String) {
                 sliderStep = 1,
                 onSliderChange = { newTemp ->
                     startupAcTemp = newTemp
-                    prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.key, "%.1f".format(newTemp / 2.0)) }
+                    prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE.key, String.format(Locale.US, "%.1f", newTemp / 2.0)) }
                 },
                 sliderLabel = "Temperatura — motorista: %.1f°C".format(startupAcTemp / 2.0),
                 customContent = {
@@ -1218,7 +1218,7 @@ fun BasicSettingsTab(section: String) {
                         sliderValue = startupAcPassTemp,
                         onValueChange = { newTemp ->
                             startupAcPassTemp = newTemp
-                            prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE_PASSENGER.key, "%.1f".format(newTemp / 2.0)) }
+                            prefs.edit { putString(SharedPreferencesKeys.STARTUP_AC_TEMPERATURE_PASSENGER.key, String.format(Locale.US, "%.1f", newTemp / 2.0)) }
                         }
                     )
                     Text(
@@ -1349,7 +1349,7 @@ fun BasicSettingsTab(section: String) {
                         sliderValue = defaultAcDriverTemp,
                         onValueChange = { newTemp ->
                             defaultAcDriverTemp = newTemp
-                            prefs.edit { putString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_DRIVER.key, "%.1f".format(newTemp / 2.0)) }
+                            prefs.edit { putString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_DRIVER.key, String.format(Locale.US, "%.1f", newTemp / 2.0)) }
                         }
                     )
                     AcTempSlider(
@@ -1357,7 +1357,7 @@ fun BasicSettingsTab(section: String) {
                         sliderValue = defaultAcPassTemp,
                         onValueChange = { newTemp ->
                             defaultAcPassTemp = newTemp
-                            prefs.edit { putString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_PASSENGER.key, "%.1f".format(newTemp / 2.0)) }
+                            prefs.edit { putString(SharedPreferencesKeys.DEFAULT_AC_TEMPERATURE_PASSENGER.key, String.format(Locale.US, "%.1f", newTemp / 2.0)) }
                         }
                     )
                     Text(
