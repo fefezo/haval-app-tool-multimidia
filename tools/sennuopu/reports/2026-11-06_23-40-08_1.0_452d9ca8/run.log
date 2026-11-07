@@ -1,0 +1,28 @@
+Sennuopu DP-X10 - analise estatica
+Inicio: 2026-11-06 23:40:01 -03:00
+Python: 3.11
+PowerShell: 5.1.26100.9711
+Repo: %USERPROFILE%\haval-app-tool
+APK: %USERPROFILE%\haval-app-tool\Sennuopu DP-X10 Android APP_V0.0.4_220228.apk
+APK SHA-256: 452d9ca8180f314ac9b59360cc41acae772e8e41a054cdc1e4adfe635aa364e0
+Pacote: com.nisson.x10.cne
+Versao: 1.0 (versionCode 1)
+Relatorio local: %USERPROFILE%\AppData\Local\Temp\sennuopu-reports\2026-11-06_23-40-08_1.0_452d9ca8
+Baseline: relatorio anterior 2026-11-06_23-33-19_1.0_452d9ca8
+Baseline CSV: %USERPROFILE%\AppData\Local\Temp\sennuopu-reports\2026-11-06_23-33-19_1.0_452d9ca8\attribute-map.csv
+Baseline JSON: %USERPROFILE%\AppData\Local\Temp\sennuopu-reports\2026-11-06_23-33-19_1.0_452d9ca8\report.json
+
+--- comando ---
+python -I -X utf8 inspect_apk.py --apk %USERPROFILE%\haval-app-tool\Sennuopu DP-X10 Android APP_V0.0.4_220228.apk --out-dir %USERPROFILE%\AppData\Local\Temp\sennuopu-reports\2026-11-06_23-40-08_1.0_452d9ca8 --package-name com.nisson.x10.cne --version-name 1.0 --version-code 1 --baseline-csv %USERPROFILE%\AppData\Local\Temp\sennuopu-reports\2026-11-06_23-33-19_1.0_452d9ca8\attribute-map.csv --baseline-json %USERPROFILE%\AppData\Local\Temp\sennuopu-reports\2026-11-06_23-33-19_1.0_452d9ca8\report.json
+
+--- inspect stdout ---
+APK: Sennuopu DP-X10 Android APP_V0.0.4_220228.apk
+SHA-256: 452d9ca8180f314ac9b59360cc41acae772e8e41a054cdc1e4adfe635aa364e0
+libX5.so: lib/armeabi-v7a/libX5.so (1606808 bytes, SHA-256 47337439cb2772fb56be393fc149a0dded81f25bb08a69c1a767f89f39c9c797)
+Tabela: auto em RVA 0x9269c, 751 IDs, 751 comandos únicos
+Diff da tabela: 0 alterados, 0 adicionados, 0 removidos
+Relatório: %USERPROFILE%\AppData\Local\Temp\sennuopu-reports\2026-11-06_23-40-08_1.0_452d9ca8\report.md
+
+
+--- inspect stderr ---
+

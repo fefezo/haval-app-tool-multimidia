@@ -1,0 +1,33 @@
+{
+    "generated_at":  "2026-11-07T02:40:10.0413822Z",
+    "files":  [
+                  {
+                      "name":  "inspect_apk.py",
+                      "sha256":  "29fa30107e16d69e52f62f1a8ca0bea74d802834d4de4cbe46fa80995a14e986"
+                  },
+                  {
+                      "name":  "analyze-version.ps1",
+                      "sha256":  "4ec744bce41d76316826d17e1d58dea318a0592c4d617db40f929adb875a6c9d"
+                  },
+                  {
+                      "name":  "decode_frames.py",
+                      "sha256":  "eae98f3c10025fa0a29499dc9c3c3cd16b21e330145f5f79eeb3b5b068067f9a"
+                  },
+                  {
+                      "name":  "extract_map.py",
+                      "sha256":  "d27a8881e9c5a74194be74166b27e0e63c5be7e3a555cdd365f681fa90bb9537"
+                  },
+                  {
+                      "name":  "frida-hook.js",
+                      "sha256":  "c7631f97072e311e7b5706748bd0d8f547d42f0282cbac11202adf3c70736115"
+                  },
+                  {
+                      "name":  "attribute-map.csv",
+                      "sha256":  "bab8aef9cc1880b59d4ccbe4141e58e907e455f92637415c35cfb18753867323"
+                  },
+                  {
+                      "name":  "baseline-report.json",
+                      "sha256":  "5694b7c57da033b19753a5b70a4385483d89150993a7c3a6903b456a83a44f64"
+                  }
+              ]
+}
