@@ -50,9 +50,9 @@ android {
         // NÃO mudar o versionCode: é 99 em todas as releases desde a v2.0, e é
         // isso que faz o rollback ser uma reinstalação de mesmo versionCode,
         // que o Android aceita sem `-d`.
-        // v2.13: temperaturas independentes por lado no A/C de partida e no modo
-        // padrao, e o desligamento mantem a circulacao externa aberta apos a secagem.
-        versionName = "2.13"
+        // v2.14: temperaturas gravadas com ponto decimal (a central rejeitava "22,5")
+        // e secagem ao desligar termina com o perfil do modo padrao e ar externo.
+        versionName = "2.14"
 
         buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")
         buildConfigField("String", "BUILD_COMMIT", "\"$buildCommit\"")
